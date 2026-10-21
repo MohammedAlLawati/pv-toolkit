@@ -1,0 +1,31 @@
+# Runs the tests and builds the Docker image on every push, so a broken build shows up
+# here instead of on the server.
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: LibreOffice (for the PDF tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t pv-toolkit .
+      - name: Start the image and check it answers
+        run: |
+          docker run -d --name pvt -p 8000:8000 -e SECRET_KEY=ci-only-secret-key-1234567890 pv-toolkit
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8000/healthz && break; sleep 2; done
+          docker exec pvt python -m app.cli seed
+          docker exec pvt soffice --version
