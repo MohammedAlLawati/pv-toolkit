@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Contractors & consultants{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Contractors &amp; consultants</h1><div class="muted">These lists fill the dropdowns on each project and the consultant / contractor blocks of the NAMA initial form.</div></div>
+  <div class="actions"><a class="btn" href="/parties/new?kind=consultant">Add consultant</a><a class="btn" href="/parties/new?kind=contractor">Add contractor</a></div>
+</div>
+{% for title, rows in [('Consultants', consultants), ('Contractors', contractors)] %}
+<div class="panel">
+  <h2>{{ title }}</h2>
+  {% if rows %}
+  <table><thead><tr><th>Name</th><th>Phone</th><th>Project engineer</th><th>Stamp</th><th></th></tr></thead><tbody>
+  {% for x in rows %}<tr><td><a href="/parties/{{ x.id }}">{{ x.name }}</a></td><td>{{ x.phone }}</td><td>{{ x.engineer }}</td>
+  <td>{% if x.stamp %}<span class="pill ok">uploaded</span>{% else %}<span class="muted small">none</span>{% endif %}</td>
+  <td>{% if x.is_default %}<span class="pill">default</span>{% endif %}</td></tr>{% endfor %}
+  </tbody></table>
+  {% else %}<div class="empty">None yet.</div>{% endif %}
+</div>
+{% endfor %}
+{% endblock %}

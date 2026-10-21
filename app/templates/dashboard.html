@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Dashboard</h1><div class="muted">Clients, projects and paperwork in one place.</div></div>
+  <div class="actions">
+    <a class="btn" href="/clients/new">New client</a>
+    <a class="btn primary" href="/projects/new">New project</a>
+  </div>
+</div>
+<div class="stats">
+  <div class="stat"><b>{{ counts.projects }}</b><span>Projects</span></div>
+  <div class="stat"><b>{{ counts.clients }}</b><span>Clients</span></div>
+  <div class="stat"><b>{{ total_kwp|num(1) }}</b><span>kWp across projects</span></div>
+  <div class="stat"><b>{{ counts.modules }}</b><span>Modules in library</span></div>
+  <div class="stat"><b>{{ counts.inverters }}</b><span>Inverters in library</span></div>
+</div>
+<div class="panel">
+  <h2>Recently updated projects</h2>
+  {% if recent %}
+  <table>
+    <thead><tr><th>Project</th><th>Client</th><th class="r">DC kWp</th><th class="r">AC kW</th><th>Status</th><th>Updated</th></tr></thead>
+    <tbody>
+    {% for p in recent %}
+      <tr>
+        <td><a href="/projects/{{ p.id }}">{{ p.name }}</a></td>
+        <td>{{ p.client.name }}</td>
+        <td class="r num">{{ p.dc_kwp|num }}</td>
+        <td class="r num">{{ p.ac_kw|num }}</td>
+        <td><span class="pill">{{ p.status }}</span></td>
+        <td class="muted small">{{ p.updated_at.strftime('%d %b %Y') if p.updated_at }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No projects yet. Start by adding a client, then create a project for them.</div>
+  {% endif %}
+</div>
+{% endblock %}

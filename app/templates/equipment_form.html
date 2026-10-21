@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_fields.html" import field_input %}
+{% block title %}{{ (item.make ~ ' ' ~ item.model) if item else 'New ' ~ kind }}{% endblock %}
+{% block content %}
+<div class="head"><div><h1>{{ (item.make ~ ' ' ~ item.model) if item else 'New ' ~ kind }}</h1>
+<div class="muted">{% if item and item.datasheet %}Datasheet: <a href="/library/datasheets/{{ item.datasheet.id }}/file" target="_blank" rel="noopener">{{ item.datasheet.filename }}</a>{% else %}Values from the manufacturer's datasheet (STC).{% endif %}</div></div></div>
+{% if checks %}{% for c in checks %}<div class="flash warn">{{ c }}</div>{% endfor %}{% endif %}
+<form method="post" action="/library/{{ kind }}/save" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="id" value="{{ item.id if item else '' }}">
+  {% for gname, fields in groups %}
+  <div class="panel"><h2>{{ gname }}</h2><div class="fields">
+    {% for f in fields %}
+      <label class="{{ 'wide' if f.type == 'text' }}">{{ f.label }}{% if f.unit %} ({{ f.unit }}){% endif %}
+        {{ field_input(f, item[f.key] if item else none, f.key, categories) }}
+        {% if f.hint %}<span class="hint">{{ f.hint }}</span>{% endif %}</label>
+    {% endfor %}
+  </div></div>
+  {% endfor %}
+  <div class="panel"><div class="fields">
+    <label class="wide">{{ 'Replace' if item and item.datasheet else 'Attach' }} datasheet <span class="hint">Stored with this {{ kind }}; values above are not changed. To read values from a datasheet use "Upload {{ kind }} datasheet" on the library page.</span>
+      <input type="file" name="datasheet" accept="application/pdf,image/png,image/jpeg"></label>
+  </div></div>
+  <div class="bar"><a class="btn" href="/library">Cancel</a><button class="btn primary">Save</button></div>
+</form>
+{% if item %}
+<form method="post" action="/library/{{ kind }}/{{ item.id }}/delete" data-confirm="Delete this {{ kind }}?{{ ' Projects using it will lose the link.' if used }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn danger small">Delete {{ kind }}</button>
+</form>
+{% endif %}
+{% endblock %}

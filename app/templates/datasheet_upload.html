@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Upload {{ kind }} datasheet{% endblock %}
+{% block content %}
+<div class="head"><div><h1>Upload {{ kind }} datasheet</h1>
+<div class="muted">The specifications are read from the file and shown to you to check before anything is saved.</div></div></div>
+<form method="post" action="/library/upload" enctype="multipart/form-data" class="panel" id="upload-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <div class="fields">
+    <label class="wide">Datasheet (PDF, or a PNG/JPG photo of the spec table)
+      <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" required></label>
+  </div>
+  <p class="small muted">
+    {% if claude_on %}Read with Claude ({{ model_name }}). Handles multi-model tables, merged cells and scanned pages. Takes 10–40 seconds.
+    {% else %}No Claude API key is set, so the basic text reader is used. Clean PDF tables read well; anything it isn't sure of is left blank for you to fill in.{% endif %}
+  </p>
+  <div class="bar"><a class="btn" href="/library">Cancel</a><button class="btn primary" data-busy="Reading datasheet…">Read datasheet</button></div>
+</form>
+{% endblock %}

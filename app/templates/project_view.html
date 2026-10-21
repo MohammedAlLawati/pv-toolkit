@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <h1>{{ p.name }}</h1>
+    <div class="muted"><a href="/clients/{{ p.client.id }}">{{ p.client.name }}</a> · Account {{ p.account_no or '—' }} · <span class="pill">{{ p.status }}</span></div>
+  </div>
+  <div class="actions">
+    <form method="post" action="/projects/{{ p.id }}/duplicate"><input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn">Duplicate</button></form>
+    <a class="btn primary" href="/projects/{{ p.id }}/edit">Edit project</a>
+  </div>
+</div>
+
+<div class="summary">
+  <div><span>DC capacity</span><b>{{ p.dc_kwp|num }} kWp</b></div>
+  <div><span>AC capacity</span><b>{{ p.ac_kw|num }} kW</b></div>
+  <div><span>DC/AC ratio</span><b>{{ p.dc_ac_ratio|num }}</b></div>
+  <div><span>Annual generation</span><b>{{ p.annual_gen_kwh|num(0) }} kWh</b></div>
+</div>
+
+<div class="grid2">
+  <div class="panel">
+    <h2>Documents</h2>
+    {% for d in docs %}
+      <div class="doc">
+        <div>
+          <b>{{ d.title }}</b>
+          {% if d.missing %}<div class="missing">Still needs: {{ d.missing|join(', ') }}</div>
+          {% else %}<div class="ready">All fields filled</div>{% endif %}
+        </div>
+        <div class="btns">
+          <a class="btn small" href="/projects/{{ p.id }}/documents/{{ d.key }}.docx">Word</a>
+          {% if pdf_ok %}<a class="btn small" href="/projects/{{ p.id }}/documents/{{ d.key }}.pdf">PDF</a>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+    <p class="small muted">Missing fields are left blank in the document so you can still print and fill by hand.</p>
+    <p><a class="btn sun" href="/projects/{{ p.id }}/pack.zip?keys=initial,agency,design">Download NAMA submission pack (.zip)</a></p>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>System</h2>
+      <dl class="kv">
+        <dt>Modules</dt><dd>{{ p.module_count or '—' }} × {{ p.module.label if p.module else '—' }}</dd>
+        <dt>Strings</dt><dd>{{ p.strings or '—' }}</dd>
+        <dt>Inverters</dt><dd>{{ p.inverter_qty or '—' }} × {{ p.inverter.label if p.inverter else '—' }}</dd>
+        <dt>Phases</dt><dd>{{ p.phases }}-phase · internal transformer: {{ 'yes' if p.internal_transformer else 'no' }}</dd>
+        <dt>Tilt / azimuth</dt><dd>{{ p.tilt_deg|num(1) }}° / {{ p.azimuth_deg|num(1) }}°</dd>
+        <dt>Mounting</dt><dd>{{ mounting_types[p.mounting] }} · {{ p.installation_type }}{% if p.elevation_m %} ({{ p.elevation_m|num(1) }} m){% endif %}</dd>
+        <dt>Area</dt><dd>{{ p.project_area_m2|num(1) }} m²</dd>
+        <dt>NAMA design form</dt><dd>{{ 'Above 11 kW' if p.above_11kw else '11 kW and below' }} (by AC capacity)</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h2>Paperwork</h2>
+      <dl class="kv">
+        <dt>Premises</dt><dd>{{ p.premises_type|capitalize }}</dd>
+        <dt>Connection</dt><dd>{{ connection_types[p.connection_type] }}</dd>
+        <dt>Consultant</dt><dd>{{ p.consultant.name if p.consultant else '—' }}</dd>
+        <dt>Contractor</dt><dd>{{ p.contractor.name if p.contractor else '—' }}</dd>
+        <dt>Price</dt><dd>{{ ('OMR %s + VAT'|format('{:,.3f}'.format(p.subtotal_omr))) if p.subtotal_omr is not none else '—' }}</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+{% if p.notes %}<div class="panel"><h2>Notes</h2><div>{{ p.notes }}</div></div>{% endif %}
+<form method="post" action="/projects/{{ p.id }}/delete" data-confirm="Delete this project? This cannot be undone.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <button class="btn danger small">Delete project</button>
+</form>
+{% endblock %}

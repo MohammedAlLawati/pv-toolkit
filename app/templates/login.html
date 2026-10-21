@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block body %}
+<div class="auth"><div class="card">
+  <h1><img src="/static/icon.svg" alt="">{{ APP_NAME }}</h1>
+  {% if step == "code" %}
+    <p class="muted">Enter the 6-digit code from your authenticator app.</p>
+  {% else %}
+    <p class="muted">Private workspace. Sign in to continue.</p>
+  {% endif %}
+  {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+  {% if step == "code" %}
+  <form method="post" action="/login/2fa" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <input class="code" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autofocus required aria-label="Authentication code">
+    <button class="btn primary">Verify</button>
+    <a class="small muted" href="/login">Start over</a>
+  </form>
+  {% else %}
+  <form method="post" action="/login">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <label>Username <input name="username" autocomplete="username" autofocus required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary">Continue</button>
+  </form>
+  {% endif %}
+</div></div>
+{% endblock %}

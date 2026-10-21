@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token(request) }}">
+  <title>{% block title %}{{ APP_NAME }}{% endblock %} · {{ APP_NAME }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+{% block body %}
+<div class="shell">
+  <aside class="side">
+    <a class="brand" href="/"><img src="/static/icon.svg" alt=""><span>{{ APP_NAME }}</span></a>
+    <nav>
+      <a href="/" class="{{ 'on' if nav=='home' }}">Dashboard</a>
+      <a href="/projects" class="{{ 'on' if nav=='projects' }}">Projects</a>
+      <a href="/clients" class="{{ 'on' if nav=='clients' }}">Clients</a>
+      <div class="navhead">Engineering</div>
+      <span class="soon" title="Phase 2">String &amp; inverter sizing <em>Phase 2</em></span>
+      <span class="soon" title="Phase 3">Yield simulation &amp; reports <em>Phase 3</em></span>
+      <span class="soon" title="Phase 4">Site layout &amp; POCs <em>Phase 4</em></span>
+      <div class="navhead">Sales</div>
+      <span class="soon" title="Phase 6">Offer decks <em>Phase 6</em></span>
+      <div class="navhead">Setup</div>
+      <a href="/library" class="{{ 'on' if nav=='library' }}">Equipment library</a>
+      <a href="/parties" class="{{ 'on' if nav=='parties' }}">Contractors &amp; consultants</a>
+      <a href="/account" class="{{ 'on' if nav=='account' }}">Account &amp; security</a>
+    </nav>
+    <form method="post" action="/logout" class="logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <button class="link">Sign out</button>
+    </form>
+  </aside>
+  <main>
+    {% for kind, msg in flashes %}<div class="flash {{ kind }}">{{ msg }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}
+</body>
+</html>

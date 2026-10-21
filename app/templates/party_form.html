@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ party.name if party else 'New ' ~ kind }}{% endblock %}
+{% block content %}
+<div class="head"><div><h1>{{ party.name if party else 'New ' ~ kind }}</h1></div></div>
+<form method="post" action="/parties/save" enctype="multipart/form-data" class="panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="id" value="{{ party.id if party else '' }}">
+  <div class="fields">
+    <label>Type <select name="kind"><option value="contractor" {{ 'selected' if kind=='contractor' }}>Contractor</option><option value="consultant" {{ 'selected' if kind=='consultant' }}>Consultant</option></select></label>
+    <label class="wide">Company name <input name="name" value="{{ party.name if party else '' }}" required></label>
+    <label>Phone <input name="phone" value="{{ party.phone if party else '' }}"></label>
+    <label>E-mail <input name="email" type="email" value="{{ party.email if party else '' }}"></label>
+    <label>Project engineer <input name="engineer" value="{{ party.engineer if party else '' }}"></label>
+    <label class="wide">Address <span class="hint">Used on the execution agreement</span><textarea name="address">{{ party.address if party else '' }}</textarea></label>
+    <label class="wide">Stamp / signature image (PNG with transparent background works best)
+      <input type="file" name="stamp" accept="image/png,image/jpeg">
+      <span class="hint">Placed in the Signature &amp; Stamp box on the NAMA initial form. Leave empty to sign and stamp by hand.</span>
+    </label>
+    {% if party and party.stamp %}
+      <div class="wide"><img class="stamp-preview" src="/parties/{{ party.id }}/stamp.png" alt="Current stamp">
+      <label class="check"><input type="checkbox" name="remove_stamp"> Remove stamp</label></div>
+    {% endif %}
+    <label class="check wide"><input type="checkbox" name="is_default" {{ 'checked' if party and party.is_default }}> Pre-select on new projects</label>
+  </div>
+  <div class="bar"><a class="btn" href="/parties">Cancel</a><button class="btn primary">Save</button></div>
+</form>
+{% if party %}
+<form method="post" action="/parties/{{ party.id }}/delete" data-confirm="Delete {{ party.name }}?">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn danger small">Delete</button>
+</form>
+{% endif %}
+{% endblock %}

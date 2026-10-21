@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Set up two-factor sign-in{% endblock %}
+{% block body %}
+<div class="auth"><div class="card">
+  <h1><img src="/static/icon.svg" alt="">Two-factor sign-in</h1>
+  <p class="muted">One-time setup. Scan this with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password…), then enter the code it shows.</p>
+  {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+  <div class="qr">{{ qr|safe }}</div>
+  <details class="small"><summary>Can't scan? Enter this key instead</summary><code>{{ secret }}</code></details>
+  <form method="post" action="/setup-2fa" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <input class="code" name="code" inputmode="numeric" maxlength="7" required autofocus aria-label="Authentication code">
+    <button class="btn primary">Confirm and sign in</button>
+  </form>
+</div></div>
+{% endblock %}

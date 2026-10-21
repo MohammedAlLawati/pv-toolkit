@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_fields.html" import field_input %}
+{% block title %}Check datasheet values{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Check the values</h1>
+  <div class="muted">{{ ds.filename }} · read by {{ {'claude':'Claude','text':'the text reader','manual':'hand'}.get(ds.method, ds.method) }} ·
+    <a href="/library/datasheets/{{ ds.id }}/file" target="_blank" rel="noopener">open datasheet</a></div></div>
+</div>
+{% for w in warnings %}<div class="flash warn">{{ w }}</div>{% endfor %}
+<p class="muted small">One column per model found. Correct anything that's wrong, untick models you don't want, then save. Values used for string sizing are marked ●.
+{% if rows|selectattr('existing')|list %}For models already in the library, blank fields keep the library's current value.{% endif %}</p>
+<form method="post" action="/library/datasheets/{{ ds.id }}/save">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="count" value="{{ rows|length }}">
+  <div class="review-wrap">
+  <table class="review">
+    <thead>
+      <tr><th class="lab"></th>
+      {% for r in rows %}
+        <th>
+          <label class="check"><input type="checkbox" name="m{{ loop.index0 }}_include" checked> {{ r['values'].get('model') or 'New model' }}</label>
+          {% if r.existing %}<span class="pill warn" title="Saving updates the existing library entry">updates existing</span>{% endif %}
+        </th>
+      {% endfor %}</tr>
+    </thead>
+    <tbody>
+    {% for gname, fields in groups %}
+      <tr class="grp"><td colspan="{{ rows|length + 1 }}">{{ gname }}</td></tr>
+      {% for f in fields %}
+      <tr>
+        <td class="lab">{{ f.label }}{% if f.unit %} <span class="muted">({{ f.unit }})</span>{% endif %}
+          {% if f.key in ('voc','isc','vmp','imp','tc_voc_pct','tc_isc_pct','max_dc_v','mppt_min_v','mppt_max_v','num_mppt','mppt_strings','mppt_currents','mppt_iscs') %}<span class="dot" title="Used for string sizing">●</span>{% endif %}</td>
+        {% for r in rows %}
+          <td>{{ field_input(f, r['values'].get(f.key), 'm%d_%s'|format(loop.index0, f.key), categories, compact=True) }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    {% endfor %}
+      <tr class="grp"><td colspan="{{ rows|length + 1 }}">Checks</td></tr>
+      <tr><td class="lab">Sanity checks</td>
+      {% for r in rows %}<td class="small">{% if r.checks %}{% for c in r.checks %}<div class="chk-warn">{{ c }}</div>{% endfor %}{% else %}<span class="ok-text">No problems found</span>{% endif %}</td>{% endfor %}</tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="bar"><a class="btn" href="/library">Discard</a><button class="btn primary">Save ticked models to library</button></div>
+</form>
+{% endblock %}

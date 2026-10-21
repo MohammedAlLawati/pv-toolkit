@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ 'New project' if is_new else p.name }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>{{ 'New project' if is_new else 'Edit project' }}</h1>
+  <div class="muted">Fill in what you have. Each document lists anything it still needs.</div></div>
+</div>
+<form method="post" action="/projects/save" id="project-form" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="id" value="{{ p.id or '' }}">
+
+  <div class="panel">
+    <h2>Project</h2>
+    <div class="fields">
+      <label>Client
+        <select name="client_id" required>
+          <option value="">Choose…</option>
+          {% for c in clients %}<option value="{{ c.id }}" {{ 'selected' if c.id==p.client_id }}>{{ c.name }}</option>{% endfor %}
+        </select>
+        <span class="hint">Not listed? <a href="/clients/new">Add a client</a> first.</span>
+      </label>
+      <label>Project name <input name="name" value="{{ p.name or '' }}"></label>
+      <label>Status <select name="status">{% for st in statuses %}<option {{ 'selected' if st==p.status }}>{{ st }}</option>{% endfor %}</select></label>
+      <label>Reference code <input name="reference_code" value="{{ p.reference_code or '' }}" placeholder="Client initials"><span class="hint">Used in "HTC/&lt;code&gt;/EA/01". Blank = client's initials</span></label>
+      <label>Electricity account number <input name="account_no" value="{{ p.account_no or '' }}" inputmode="numeric"><span class="hint">Keep leading zeros, e.g. 08023459</span></label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Site</h2>
+    <div class="fields">
+      <label>Premises type
+        <select name="premises_type">{% for t in premises_types %}<option value="{{ t }}" {{ 'selected' if t==p.premises_type }}>{{ t|capitalize }}</option>{% endfor %}</select>
+      </label>
+      <label>Connection type
+        <select name="connection_type">{% for k, v in connection_types.items() %}<option value="{{ k }}" {{ 'selected' if k==p.connection_type }}>{{ v }}</option>{% endfor %}</select>
+      </label>
+      <label>PV mounting
+        <select name="mounting">{% for k, v in mounting_types.items() %}<option value="{{ k }}" {{ 'selected' if k==p.mounting }}>{{ v }}</option>{% endfor %}</select>
+      </label>
+      <label>Installation type <input name="installation_type" value="{{ p.installation_type or '' }}" list="install-types"></label>
+      <label>Structure height (m) <input name="elevation_m" value="{{ p.elevation_m if p.elevation_m is not none else '' }}" inputmode="decimal"></label>
+      <label>Project area (m²) <input name="project_area_m2" value="{{ p.project_area_m2 if p.project_area_m2 is not none else '' }}" inputmode="decimal"></label>
+      <label>Latitude <input name="latitude" value="{{ p.latitude if p.latitude is not none else '' }}" inputmode="decimal" placeholder="23.5880"></label>
+      <label>Longitude <input name="longitude" value="{{ p.longitude if p.longitude is not none else '' }}" inputmode="decimal" placeholder="58.3829"></label>
+    </div>
+    <div class="fields" id="layout-field">
+      <label class="wide">Layout image <span class="hint">Roof / site layout shown in the execution agreement's Design Summary box (PNG or JPG)</span>
+        <input type="file" name="layout_image" accept="image/png,image/jpeg"></label>
+      {% if p.layout_image %}<div class="wide"><img class="stamp-preview" src="/projects/{{ p.id }}/layout.png" alt="Current layout">
+        <label class="check"><input type="checkbox" name="remove_layout"> Remove layout image</label></div>{% endif %}
+    </div>
+    <datalist id="install-types"><option value="Elevated Flat Roof"><option value="Flush-mount Flat Roof"><option value="Metal Sheet Roof"><option value="Car Park Structure"><option value="Ground Mount"></datalist>
+  </div>
+
+  <div class="panel">
+    <h2>System</h2>
+    <div class="fields">
+      <label class="wide">PV module
+        <select name="module_id">
+          <option value="" data-wp="">Choose…</option>
+          {% for m in modules %}<option value="{{ m.id }}" data-wp="{{ m.wp }}" {{ 'selected' if m.id==p.module_id }}>{{ m.label }}</option>{% endfor %}
+        </select>
+        <span class="hint">Missing a model? Add it in the <a href="/library">equipment library</a>.</span>
+      </label>
+      <label>Number of modules <input name="module_count" value="{{ p.module_count or '' }}" inputmode="numeric"></label>
+      <label>Number of strings <input name="strings" value="{{ p.strings or '' }}" inputmode="numeric"><span class="hint" id="live-per-string"></span></label>
+      <label>Tilt (°) <input name="tilt_deg" value="{{ p.tilt_deg if p.tilt_deg is not none else '' }}" inputmode="decimal"></label>
+      <label>Azimuth (°) <input name="azimuth_deg" value="{{ p.azimuth_deg if p.azimuth_deg is not none else '' }}" inputmode="decimal"><span class="hint">180 = facing south</span></label>
+      <label class="wide">Inverter
+        <select name="inverter_id">
+          <option value="" data-kw="">Choose…</option>
+          {% for cat, lab in categories.items() %}{% set items = inverters|selectattr('category', 'equalto', cat)|list %}{% if items %}<optgroup label="{{ lab }}">
+          {% for v in items %}<option value="{{ v.id }}" data-kw="{{ v.ac_kw }}" data-phases="{{ v.phases }}" data-trafo="{{ 1 if v.internal_transformer else 0 }}" {{ 'selected' if v.id==p.inverter_id }}>{{ v.label }}</option>{% endfor %}
+          </optgroup>{% endif %}{% endfor %}
+        </select>
+      </label>
+      <label>Inverter quantity <input name="inverter_qty" value="{{ p.inverter_qty or '' }}" inputmode="numeric"></label>
+      <div><label>Phases</label><div class="radios">
+        <label><input type="radio" name="phases" value="1" {{ 'checked' if p.phases==1 }}> 1 phase</label>
+        <label><input type="radio" name="phases" value="3" {{ 'checked' if p.phases!=1 }}> 3 phases</label></div></div>
+      <div><label>Internal transformer</label><div class="radios">
+        <label><input type="radio" name="internal_transformer" value="yes" {{ 'checked' if p.internal_transformer }}> Yes</label>
+        <label><input type="radio" name="internal_transformer" value="no" {{ 'checked' if not p.internal_transformer }}> No</label></div></div>
+      <label>Annual generation (kWh) <input name="annual_gen_kwh" value="{{ '%g'|format(p.annual_gen_kwh) if p.annual_gen_kwh is not none else '' }}" inputmode="decimal"><span class="hint">From PVsyst / Helioscope for now; calculated in Phase 3</span></label>
+    </div>
+    <div class="live">
+      <div><span>DC capacity</span><b id="live-dc">—</b></div>
+      <div><span>AC capacity</span><b id="live-ac">—</b></div>
+      <div><span>DC/AC ratio</span><b id="live-ratio">—</b></div>
+      <div><span>NAMA design form</span><b id="live-form" class="formpick">—</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Commercial <span class="muted small">(execution agreement)</span></h2>
+    <div class="fields">
+      <label>Price before VAT (OMR) <input name="subtotal_omr" value="{{ '%g'|format(p.subtotal_omr) if p.subtotal_omr is not none else '' }}" inputmode="decimal"></label>
+      <label>VAT (%) <input name="vat_pct" value="{{ '%g'|format(p.vat_pct) }}" inputmode="decimal"></label>
+      <label>Tariff for savings (bz/kWh) <input name="tariff_bz" value="{{ '%g'|format(p.tariff_bz) }}" inputmode="decimal"></label>
+      <label>Yearly degradation (%) <input name="degradation_pct" value="{{ '%g'|format(p.degradation_pct) }}" inputmode="decimal"></label>
+      <label class="wide">Tariff footnote <input name="tariff_note" value="{{ p.tariff_note or '' }}"></label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Authority paperwork</h2>
+    <div class="fields">
+      <div class="wide grid2">
+        <label>Consultant
+          <span class="with-add">
+            <select name="consultant_id"><option value="">None</option>{% for x in consultants %}<option value="{{ x.id }}" {{ 'selected' if x.id==p.consultant_id }}>{{ x.name }}</option>{% endfor %}</select>
+            <button type="button" class="btn small" data-quickadd="consultant">+ Add</button>
+          </span>
+          <span class="quickadd" id="qa-consultant">
+            <input data-f="name" placeholder="Consultant name"><input data-f="phone" placeholder="Phone"><input data-f="engineer" placeholder="Project engineer">
+            <button type="button" class="btn small primary" data-save>Add to list</button>
+          </span>
+        </label>
+        <label>Contractor
+          <span class="with-add">
+            <select name="contractor_id"><option value="">None</option>{% for x in contractors %}<option value="{{ x.id }}" {{ 'selected' if x.id==p.contractor_id }}>{{ x.name }}</option>{% endfor %}</select>
+            <button type="button" class="btn small" data-quickadd="contractor">+ Add</button>
+          </span>
+          <span class="quickadd" id="qa-contractor">
+            <input data-f="name" placeholder="Contractor name"><input data-f="phone" placeholder="Phone"><input data-f="engineer" placeholder="Project engineer">
+            <button type="button" class="btn small primary" data-save>Add to list</button>
+          </span>
+        </label>
+      </div>
+      <label>Agency contract date <input type="date" name="agency_date" value="{{ p.agency_date.isoformat() if p.agency_date else '' }}"><span class="hint">Blank = date of generation</span></label>
+    </div>
+    <p class="small muted spaced-top">The design form's "Documents Required" Yes / No / NA marks are kept exactly as in your template.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <label>Notes <textarea name="notes">{{ p.notes or '' }}</textarea></label>
+  </div>
+
+  <div class="bar">
+    <a class="btn" href="{{ '/projects/%d'|format(p.id) if p.id else '/projects' }}">Cancel</a>
+    <button class="btn primary">Save project</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Equipment library{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Equipment library</h1><div class="muted">Modules and inverters available to projects. Upload a datasheet and the values are read for you to confirm.</div></div>
+  <div class="actions">
+    <a class="btn primary" href="/library/upload?kind=module">Upload module datasheet</a>
+    <a class="btn primary" href="/library/upload?kind=inverter">Upload inverter datasheet</a>
+  </div>
+</div>
+{% if not claude_on %}
+<div class="flash warn">Datasheet reading is using the basic text reader. Add a Claude API key in the server settings (see DEPLOY.md, step 5) so complex datasheets are read reliably.</div>
+{% endif %}
+{% if not has_sungrow %}
+<div class="panel callout">
+  <div><b>Sungrow MENA range</b><div class="muted small">18 inverters from your datasheets: SG5.0–SG20RT-P2 (residential), SG25–SG150CX (C&amp;I), SG320HX-20 (utility). Values checked by hand; datasheets attached.</div></div>
+  <form method="post" action="/library/import-sungrow"><input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn sun">Load into library</button></form>
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Inverters</h2>
+    <div class="tabs">
+      <a href="/library" class="{{ 'on' if not cat }}">All</a>
+      {% for k, lab in categories.items() %}<a href="/library?cat={{ k }}" class="{{ 'on' if cat==k }}">{{ lab }}</a>{% endfor %}
+      <a class="btn small" href="/library/inverter/new">Add manually</a>
+    </div>
+  </div>
+  {% if inverters %}
+  <table>
+    <thead><tr><th>Model</th><th>Category</th><th class="r">AC kW</th><th class="r">Ph.</th><th class="r">MPPTs</th><th>MPPT window</th><th class="r">Max V</th><th>A / MPPT</th><th>Datasheet</th><th></th></tr></thead>
+    <tbody>
+    {% for v in inverters %}
+      <tr>
+        <td><a href="/library/inverter/{{ v.id }}">{{ v.make }} {{ v.model }}</a></td>
+        <td><span class="pill">{{ categories.get(v.category, v.category) }}</span></td>
+        <td class="r num">{{ v.ac_kw|num }}</td><td class="r">{{ v.phases }}</td><td class="r">{{ v.num_mppt or '—' }}</td>
+        <td class="small num">{% if v.mppt_min_v %}{{ v.mppt_min_v|num(0) }}–{{ v.mppt_max_v|num(0) }} V{% else %}—{% endif %}</td>
+        <td class="r num">{{ v.max_dc_v|num(0) }}</td>
+        <td class="small num">{{ v.mppt_currents if v.mppt_currents and v.mppt_currents|length < 14 else (v.max_current_per_mppt|num) }}</td>
+        <td>{% if v.datasheet %}<a class="small" href="/library/datasheets/{{ v.datasheet.id }}/file" target="_blank" rel="noopener">PDF</a>{% else %}<span class="muted small">—</span>{% endif %}</td>
+        <td>{% if v.sizing_ready %}<span class="pill ok">sizing-ready</span>{% else %}<span class="pill warn">incomplete</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">No inverters{{ ' in this category' if cat }} yet.</div>{% endif %}
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>PV modules</h2><a class="btn small" href="/library/module/new">Add manually</a></div>
+  {% if modules %}
+  <table>
+    <thead><tr><th>Model</th><th class="r">Wp</th><th>Technology</th><th class="r">Voc</th><th class="r">Isc</th><th class="r">Tc Voc</th><th>Dimensions</th><th>Datasheet</th><th></th></tr></thead>
+    <tbody>
+    {% for m in modules %}
+      <tr>
+        <td><a href="/library/module/{{ m.id }}">{{ m.make }} {{ m.model }}</a></td>
+        <td class="r num">{{ m.wp|num(1) }}</td><td class="small">{{ m.technology }}</td>
+        <td class="r num">{{ m.voc|num }}</td><td class="r num">{{ m.isc|num }}</td><td class="r num">{{ m.tc_voc_pct|num(3) }}</td>
+        <td class="small">{{ m.dims }}</td>
+        <td>{% if m.datasheet %}<a class="small" href="/library/datasheets/{{ m.datasheet.id }}/file" target="_blank" rel="noopener">PDF</a>{% else %}<span class="muted small">—</span>{% endif %}</td>
+        <td>{% if m.sizing_ready %}<span class="pill ok">sizing-ready</span>{% else %}<span class="pill warn">incomplete</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">No modules yet. Upload a module datasheet to add them.</div>{% endif %}
+</div>
+{% endblock %}

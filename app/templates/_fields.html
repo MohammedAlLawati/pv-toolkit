@@ -1,0 +1,14 @@
+{# One input for an equipment field. `f` is an equipment_fields.Field #}
+{% macro field_input(f, value, name, categories=None, compact=False) -%}
+{%- set v = '' if value is none else value -%}
+{%- if f.key == 'category' -%}
+  <select name="{{ name }}">{% for k, lab in categories.items() %}<option value="{{ k }}" {{ 'selected' if v==k }}>{{ lab }}</option>{% endfor %}</select>
+{%- elif f.type == 'bool' -%}
+  <select name="{{ name }}"><option value="false" {{ 'selected' if not v }}>No</option><option value="true" {{ 'selected' if v }}>Yes</option></select>
+{%- elif f.type == 'text' -%}
+  <textarea name="{{ name }}" rows="{{ 2 if compact else 3 }}">{{ v }}</textarea>
+{%- else -%}
+  <input name="{{ name }}" value="{{ ('%g'|format(v)) if (v is number and v is not sameas true and v is not sameas false) else v }}"
+    {% if f.type in ('float','int') %}inputmode="decimal"{% endif %} {% if f.required %}required{% endif %}>
+{%- endif -%}
+{%- endmacro %}

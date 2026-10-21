@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Account & security{% endblock %}
+{% block content %}
+<div class="head"><div><h1>Account &amp; security</h1><div class="muted">Signed in as <b>{{ user.username }}</b>. Two-factor sign-in is on.</div></div></div>
+<div class="grid2">
+<form method="post" action="/account/password" class="panel">
+  <h2>Change password</h2>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <div class="fields">
+    <label class="wide">Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label class="wide">New password <input type="password" name="new" autocomplete="new-password" required><span class="hint">At least 12 characters, upper and lower case, and a number.</span></label>
+    <label class="wide">Repeat new password <input type="password" name="confirm" autocomplete="new-password" required></label>
+  </div>
+  <div class="bar"><button class="btn primary">Change password</button></div>
+</form>
+<div class="panel">
+  <h2>If you lose your phone</h2>
+  <p>On the server, run <code>python -m app.cli reset-2fa</code>. Your next sign-in will show a new QR code to scan.</p>
+  <p class="muted small">Five wrong passwords or codes lock sign-in for 15 minutes. <code>python -m app.cli unlock</code> clears it.</p>
+</div>
+</div>
+{% endblock %}

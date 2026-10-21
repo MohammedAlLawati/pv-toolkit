@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name if client else 'New client' }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>{{ client.name if client else 'New client' }}</h1><div class="muted">These details appear on the NAMA forms and the execution agreement.</div></div>
+  {% if client %}<div class="actions"><a class="btn primary" href="/projects/new?client_id={{ client.id }}">New project for this client</a></div>{% endif %}
+</div>
+<form method="post" action="/clients/save" class="panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="id" value="{{ client.id if client else '' }}">
+  <div class="fields">
+    <label class="wide">Full name (owner) <input name="name" value="{{ client.name if client else '' }}" required></label>
+    <label>Civil ID / C.R. number <input name="id_no" value="{{ client.id_no if client else '' }}"></label>
+    <label>Mobile <input name="mobile" value="{{ client.mobile if client else '' }}"></label>
+    <label>Telephone <input name="tel" value="{{ client.tel if client else '' }}"></label>
+    <label>E-mail <input name="email" type="email" value="{{ client.email if client else '' }}"></label>
+    <label>Governorate <input name="governorate" value="{{ client.governorate if client else '' }}" list="governorates"></label>
+    <label>Wilayat <input name="wilaya" value="{{ client.wilaya if client else '' }}"></label>
+    <label>Village / area <input name="village" value="{{ client.village if client else '' }}"></label>
+    <label class="wide">Notes <textarea name="notes">{{ client.notes if client else '' }}</textarea></label>
+  </div>
+  <datalist id="governorates">
+    {% for g in ['Muscat','Dhofar','Musandam','Al Buraimi','Ad Dakhiliyah','North Al Batinah','South Al Batinah','South Ash Sharqiyah','North Ash Sharqiyah','Ad Dhahirah','Al Wusta'] %}<option value="{{ g }}">{% endfor %}
+  </datalist>
+  <div class="bar">
+    {% if not client %}<button class="btn" name="then" value="project">Save and create project</button>{% endif %}
+    <button class="btn primary">Save client</button>
+  </div>
+</form>
+{% if client %}
+<div class="panel">
+  <h2>Projects</h2>
+  {% if client.projects %}
+  <table><thead><tr><th>Project</th><th class="r">DC kWp</th><th class="r">AC kW</th><th>Status</th></tr></thead><tbody>
+  {% for p in client.projects %}<tr><td><a href="/projects/{{ p.id }}">{{ p.name }}</a></td><td class="r">{{ p.dc_kwp|num }}</td><td class="r">{{ p.ac_kw|num }}</td><td><span class="pill">{{ p.status }}</span></td></tr>{% endfor %}
+  </tbody></table>
+  {% else %}<div class="empty">No projects for this client yet.</div>{% endif %}
+</div>
+<form method="post" action="/clients/{{ client.id }}/delete" data-confirm="Delete this client and all of their projects? This cannot be undone.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <button class="btn danger small">Delete client</button>
+</form>
+{% endif %}
+{% endblock %}
