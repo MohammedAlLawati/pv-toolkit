@@ -1,0 +1,66 @@
+{# Rules-check results for one design. `r` is a sizing.engine.Result #}
+{% set labels = {'pass': 'Every rule passes', 'warn': 'Passes, with warnings', 'fail': 'Hard rule fails: reports blocked', 'incomplete': "Can't check yet: reports blocked"} %}
+<div class="verdict {{ r.status }}">
+  <b>{{ labels[r.status] }}</b>
+  <span>{{ r.fails|length }} fail · {{ r.unknown|length }} missing · {{ r.warnings|length }} warning{{ '' if r.warnings|length == 1 else 's' }}</span>
+</div>
+
+<div class="summary">
+  <div><span>DC capacity</span><b>{{ r.dc_kwp|num }} kWp</b></div>
+  <div><span>AC capacity</span><b>{{ r.ac_kw|num }} kW</b></div>
+  <div><span>DC/AC ratio</span><b>{{ r.ratio|num }}</b></div>
+  <div><span>Modules per string</span><b>{{ r.modules_per_string or '—' }}{% if r.string_range %} <small class="muted">(allowed {{ r.string_range[0] }}–{{ r.string_range[1] }})</small>{% endif %}</b></div>
+</div>
+
+<table class="checks">
+  <thead><tr><th></th><th>Rule</th><th class="r">Design</th><th class="r">Limit</th></tr></thead>
+  <tbody>
+  {% for st in ['fail', 'unknown', 'warn', 'pass'] %}{% for c in r.checks if c.status == st %}
+    <tr class="ck-{{ c.status }}">
+      <td><span class="ck">{{ {'fail': '✕', 'unknown': '?', 'warn': '!', 'pass': '✓'}[c.status] }}</span></td>
+      <td><b>{{ c.label }}</b><div class="small muted">{{ c.detail }}</div></td>
+      <td class="r num">{{ c.value }}</td><td class="r num">{{ c.limit }}</td>
+    </tr>
+  {% endfor %}{% endfor %}
+  </tbody>
+</table>
+
+{% if r.string %}
+<h3 class="spaced">String values ({{ r.modules_per_string }} modules)</h3>
+<dl class="kv">
+  <dt>Temperatures</dt><dd>record low {{ r.temps.t_min|num(1) }} °C · max. ambient {{ r.temps.t_max|num(1) }} °C · hot cell {{ r.temps.cell_hot|num(1) }} °C (NOCT {{ r.temps.noct|num(0) }} °C)</dd>
+  <dt>Voc at record low</dt><dd>{{ r.string.voc_cold|num(1) }} V</dd>
+  <dt>Vmp at record low / STC / hot</dt><dd>{{ r.string.vmp_cold|num(1) }} / {{ r.string.vmp|num(1) }} / {{ r.string.vmp_hot|num(1) }} V</dd>
+  <dt>Current per string</dt><dd>Isc design {{ r.string.isc_design|num(2) }} A · operating {{ r.string.imp_design|num(2) }} A</dd>
+</dl>
+{% endif %}
+
+{% if r.groups %}
+<h3 class="spaced">Strings on each inverter</h3>
+{% for g in r.groups %}
+<div class="small muted">{{ g.count }} inverter{{ 's' if g.count > 1 }} with {{ g.strings }} string{{ 's' if g.strings > 1 }} each ({{ g.dc_kwp|num }} kWp per inverter){% if g.overflow %} · <b class="err-text">{{ g.overflow }} string(s) don't fit</b>{% endif %}</div>
+<table class="mppt">
+  <thead><tr><th>MPPT</th><th class="r">Strings / inputs</th><th class="r">Isc design / limit</th><th class="r">Current / limit</th></tr></thead>
+  <tbody>
+  {% for row in g.mppts %}
+    <tr>
+      <td>{{ row.index }}</td>
+      <td class="r num {{ 'err-text' if row.connectors and row.strings > row.connectors }}">{{ row.strings }} / {{ row.connectors or '—' }}</td>
+      <td class="r num {{ 'err-text' if row.isc_limit and row.isc > row.isc_limit + 1e-9 }}">{{ row.isc|num(1) }} / {{ row.isc_limit|num(0) }} A</td>
+      <td class="r num {{ 'err-text' if row.imp_limit and row.imp > row.imp_limit + 1e-9 }}">{{ row.imp|num(1) }} / {{ row.imp_limit|num(0) }} A</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+{% endif %}
+
+{% if r.cables %}
+<h3 class="spaced">Cables</h3>
+<dl class="kv">
+  {% if r.cables.dc_recommended is defined %}<dt>DC string cable</dt><dd>{% if r.cables.dc_drop is defined %}{{ r.cables.dc_drop|num(2) }} % drop · {% endif %}smallest size for the limit: {{ (r.cables.dc_recommended ~ ' mm²') if r.cables.dc_recommended else 'over 16 mm², shorten the run' }}</dd>{% endif %}
+  {% if r.cables.ac_recommended is defined %}<dt>AC cable</dt><dd>{{ r.cables.ac_current|num(1) }} A · {% if r.cables.ac_drop is defined %}{{ r.cables.ac_drop|num(2) }} % drop · {% endif %}smallest size for the drop limit: {{ (r.cables.ac_recommended ~ ' mm²') if r.cables.ac_recommended else 'over 300 mm², split the run' }}. Check current rating and derating separately.</dd>{% endif %}
+</dl>
+{% endif %}
+
+{% for n in r.notes %}<div class="note small">{{ n }}</div>{% endfor %}

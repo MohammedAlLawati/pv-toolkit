@@ -15,6 +15,7 @@ HX_FILE_320 = "DS_20231209_SG320HX-20_Datasheet_V5_EN.pdf"
 _RT = dict(make="Sungrow", category="residential", phases=3, ac_voltage="3/N/PE, 230/400 V",
            internal_transformer=False, topology="Transformerless", max_dc_v=1100, min_dc_v=160,
            start_v=180, rated_input_v=600, mppt_min_v=160, mppt_max_v=1000, num_mppt=2,
+           connector_limit_v=1000,
            max_eff_pct=98.3, dimensions="370 × 480 × 195", ip_rating="IP65",
            notes="Inverter goes to standby between 1000 V and 1100 V DC. If the max. system DC "
                  "voltage exceeds 1000 V, MC4 Evo2 connectors must be used (the supplied MC4 "

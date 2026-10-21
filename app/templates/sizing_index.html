@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}String &amp; inverter sizing{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>String &amp; inverter sizing</h1><div class="muted">The rules check for every project. Open one to get a recommended design or change it.</div></div>
+  <div class="actions"><a class="btn" href="/rules">Design rules</a></div>
+</div>
+<div class="panel">
+  {% if rows %}
+  <table>
+    <thead><tr><th>Project</th><th>System</th><th class="r">DC kWp</th><th class="r">AC kW</th><th class="r">DC/AC</th><th>Check</th></tr></thead>
+    <tbody>
+    {% for p, r in rows %}
+      <tr>
+        <td><a href="/projects/{{ p.id }}/sizing">{{ p.name }}</a><div class="small muted">{{ p.client.name }}</div></td>
+        <td class="small">{% if p.module %}{{ p.module_count or '—' }} × {{ p.module.model }}{% else %}—{% endif %}<br>{% if p.inverter %}{{ p.inverter_qty or '—' }} × {{ p.inverter.model }}{% endif %}</td>
+        <td class="r num">{{ r.dc_kwp|num }}</td><td class="r num">{{ r.ac_kw|num }}</td><td class="r num">{{ r.ratio|num }}</td>
+        <td>{% include "_sizing_pill.html" %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">No projects yet. <a href="/projects/new">Create one</a>.</div>{% endif %}
+</div>
+{% endblock %}

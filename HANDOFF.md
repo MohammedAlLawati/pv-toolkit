@@ -275,8 +275,8 @@ The column is added automatically on startup.
 |---|---|---|
 | 1 | Login, clients, projects, NAMA forms, execution agreement | ✅ done |
 | 1.5 | Datasheet upload and reading, categories, Sungrow range, fixed checklist | ✅ done |
-| **2** | **Sizing engine and rules check** | **next** |
-| 3 | Yield simulation (pvlib + PVGIS TMY, losses) and a PVsyst-style PDF report, locked behind the rules check | |
+| 2 | Sizing engine and rules check | ✅ done (21 Oct, see README) |
+| **3** | Yield simulation (pvlib + PVGIS TMY, losses) and a PVsyst-style PDF report, locked behind the rules check | |
 | 4 | Satellite layout ("maximise area") with Esri imagery (free) or Google (needs billing); multiple POCs per site; transformer checks (C&I spare capacity, utility MV step-up) | |
 | 5 | Consumption-CSV design approach | |
 | 6 | Offer deck generator from `source_templates/EPC_Offer_Template.pptx` | |
@@ -342,3 +342,22 @@ Small-scale Grid-connected Solar PV" and the NAMA rules**. These were requested 
   - tariff assumption 32 bz/kWh (third slab)
 - **The approval route he works with:** APSR guidelines, a 3-stage NAMA/NEDC process (initial
   enquiry → design approval → connection), plus Muscat Municipality approval.
+
+---
+
+## 8. Phase 2 notes (added 21 Oct 2026)
+
+- Code: `app/sizing/engine.py` (Design → `check()` → Result; `recommend()`), `app/sizing/rules.py`
+  (PARAMS / RULES registry, RuleProfile JSON), `app/routes/sizing.py`, templates `sizing*.html`,
+  `_sizing_results.html`, `rules.html`. Tests: `tests/test_sizing.py` (12). `pytest -q`: 26 pass.
+  Test-only deps in `requirements-dev.txt`.
+- New columns: Project `rule_profile_id, mppt_layout, t_min_c, t_max_c, hv_connectors,
+  connection_limit_kw, dc_cable_m/mm2, ac_cable_m/mm2`; Inverter `connector_limit_v`
+  (Sungrow RT = 1000 V); new table `rule_profiles`. Added by `add_missing_columns()`.
+  Re-run "import-sungrow" on an existing server to fill `connector_limit_v`.
+- Vmp temperature coefficient = tc_pmax − tc_isc (fallback tc_voc). Hot cell = Tmax + (NOCT−20)/800 × G.
+- Phase 3 is next and must refuse the report when `project_check(db, p).blocked` is True.
+- `seed` fills the starter JKM545M-72HL4-V with electrical values from Jinko's public datasheet
+  (flagged in its notes as not checked against the user's copy).
+- Still provisional: AC limits (max per connection, 1-phase max) are blank until the APSR/NAMA
+  guidelines arrive; default temps 5 °C / 50 °C.

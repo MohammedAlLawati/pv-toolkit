@@ -11,7 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import config
 from .db import init_db
-from .routes import auth, library, projects, records
+from .routes import auth, library, projects, records, sizing
 from .security import CSRFError, LoginRequired
 from .web import redirect, render
 
@@ -57,6 +57,7 @@ app.include_router(auth.router)
 app.include_router(records.router)
 app.include_router(library.router)
 app.include_router(projects.router)
+app.include_router(sizing.router)
 
 
 @app.exception_handler(LoginRequired)
@@ -75,6 +76,12 @@ async def _csrf(request: Request, exc: CSRFError):
 async def _not_found(request: Request, exc: HTTPException):
     return render(request, "error.html", status_code=404, title="Not found",
                   message="That page or record doesn't exist.")
+
+
+@app.exception_handler(409)
+async def _blocked(request: Request, exc: HTTPException):
+    return render(request, "error.html", status_code=409, title="Blocked by the design check",
+                  message=str(exc.detail))
 
 
 @app.get("/healthz")

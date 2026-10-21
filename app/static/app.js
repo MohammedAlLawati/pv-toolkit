@@ -49,6 +49,31 @@
     update();
   }
 
+  // Re-run the rules check while the sizing form is edited
+  const sizing = document.getElementById('sizing-form');
+  if (sizing) {
+    const box = document.getElementById('sizing-results');
+    const state = document.getElementById('preview-state');
+    let timer = null, seq = 0;
+    const run = async () => {
+      const mine = ++seq;
+      box.classList.add('stale');
+      try {
+        const res = await fetch(sizing.dataset.preview, { method: 'POST', body: new FormData(sizing), headers: { 'X-CSRF-Token': csrf } });
+        if (!res.ok) throw new Error(res.status);
+        const html = await res.text();
+        if (mine === seq) { box.innerHTML = html; state.textContent = 'Not saved yet'; }
+      } catch (err) {
+        if (mine === seq) state.textContent = 'Live check unavailable; save to check';
+      } finally {
+        if (mine === seq) box.classList.remove('stale');
+      }
+    };
+    const later = () => { clearTimeout(timer); timer = setTimeout(run, 350); };
+    sizing.addEventListener('input', later);
+    sizing.addEventListener('change', later);
+  }
+
   // Add a contractor / consultant from inside the project form
   document.querySelectorAll('[data-quickadd]').forEach((btn) => {
     const kind = btn.dataset.quickadd;

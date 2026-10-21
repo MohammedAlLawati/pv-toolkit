@@ -1,0 +1,4 @@
+{%- if r.status == 'pass' -%}<span class="pill ok">Passes</span>
+{%- elif r.status == 'warn' -%}<span class="pill warn">{{ r.warnings|length }} warning{{ 's' if r.warnings|length > 1 }}</span>
+{%- elif r.status == 'fail' -%}<span class="pill err">{{ r.fails|length }} fail{{ 's' if r.fails|length > 1 }}</span>
+{%- else -%}<span class="pill">Incomplete</span>{%- endif -%}

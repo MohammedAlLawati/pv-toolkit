@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Design rules{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Design rules</h1><div class="muted">The limits and rules every design is checked against. A failing hard rule blocks reports; a warning doesn't.</div></div>
+  <div class="actions">
+    <div class="tabs">{% for x in profiles %}<a href="/rules?pid={{ x.id }}" class="{{ 'on' if x.id==prof.id }}">{{ x.name }}{{ ' ★' if x.is_default }}</a>{% endfor %}</div>
+    <form method="post" action="/rules/{{ prof.id }}/copy"><input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn">Copy this profile</button></form>
+  </div>
+</div>
+<div class="flash warn">These values are common engineering practice, not yet checked against the APSR connection guidelines and NAMA rules. Fill in the AC limits once you have them.</div>
+<form method="post" action="/rules/{{ prof.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <div class="panel">
+    <div class="fields">
+      <label>Profile name <input name="name" value="{{ prof.name }}"></label>
+      <label class="check"><input type="checkbox" name="is_default" {{ 'checked' if prof.is_default }}> Default for projects that don't choose one</label>
+    </div>
+  </div>
+  {% for group, params in groups %}
+  <div class="panel">
+    <h2>{{ group }}</h2>
+    <div class="fields">
+      {% for prm in params %}
+        {% set v = st.values[prm.key] %}
+        {% if prm.type == 'bool' %}
+        <label class="check wide"><input type="checkbox" name="{{ prm.key }}" {{ 'checked' if v }}> {{ prm.label }}{% if prm.hint %} <span class="hint">· {{ prm.hint }}</span>{% endif %}</label>
+        {% else %}
+        <label>{{ prm.label }}{% if prm.unit %} ({{ prm.unit }}){% endif %}
+          <input name="{{ prm.key }}" value="{{ '%g'|format(v) if v is not none else '' }}" inputmode="decimal">
+          {% if prm.hint %}<span class="hint">{{ prm.hint }}</span>{% endif %}</label>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  <div class="panel">
+    <h2>Rules</h2>
+    <table>
+      <thead><tr><th>Rule</th><th>Setting</th></tr></thead>
+      <tbody>
+      {% for rule in rules %}
+        <tr><td><b>{{ rule.label }}</b>{% if rule.hint %}<div class="small muted">{{ rule.hint }}</div>{% endif %}</td>
+          <td><select name="sev_{{ rule.key }}">{% for k, lab in severities.items() %}<option value="{{ k }}" {{ 'selected' if st.severity[rule.key]==k }}>{{ lab }}</option>{% endfor %}</select></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="bar"><button class="btn primary">Save rules</button></div>
+</form>
+{% endblock %}

@@ -31,6 +31,24 @@ A private web app for solar PV work: clients, projects, authority paperwork, and
   - NAMA Design Approval Application. The app picks the **above 11 kW** or **11 kW and below** form automatically from the **AC** capacity.
   - Execution Agreement for residential clients, with an optional layout image in the Design Summary box
 
+## What Phase 2 adds: string and inverter sizing
+
+- **Sizing page per project** (Project → Open sizing, or *String & inverter sizing* in the menu).
+- **Recommend a design:** choose a module and a target (DC kWp, AC kW, or the most modules that
+  fit) and the app proposes inverter model, quantity, string length and string count. Only
+  designs that pass every hard rule are listed; "Use this" applies one to the project.
+- **Rules check on every change**, live as you type. Hard rules (Voc at record low vs inverter,
+  module and connector limits; Vmp hot/cold vs the MPPT window; strings, Isc and current per
+  MPPT from the per-MPPT lists; connector current; AC vs the connection limit and profile limits;
+  phases) **block reports** when they fail or can't be checked. Warnings (DC/AC band, DC power
+  per inverter, cold-morning standby, start-up voltage, string fuses, voltage drop) don't.
+- **Design rules page:** every limit and each rule's severity (hard / warning / off) lives in an
+  editable rule profile. The default "APSR / NAMA (provisional)" profile uses common practice
+  until the APSR/NAMA guidelines are entered. An option also blocks the NAMA design form.
+- **Per project:** record low and max. ambient temperature, high-voltage DC connectors (e.g.
+  MC4 Evo2), connection limit (approved load / spare transformer capacity), cable runs.
+- The engine is in `app/sizing/` (`engine.py` calculations, `rules.py` parameters and rules).
+
 ## Project layout
 
 ```
@@ -86,7 +104,7 @@ blank in the generated document, and the app logs the name.
 | Phase | Scope |
 |---|---|
 | 1 ✅ | Login, clients, projects, equipment library, contractor/consultant lists, NAMA forms + execution agreement |
-| 2 | Sizing engine: string and inverter sizing, with a rules check that blocks reports when a hard limit fails. Covers Voc at record low temperature, MPPT window, MPPT current, DC/AC ratio, POC limits and the NAMA/APSR rules |
+| 2 ✅ | Sizing engine: string and inverter sizing, with a rules check that blocks reports when a hard limit fails. Covers Voc at record low temperature, MPPT window, MPPT current, DC/AC ratio, POC limits and the NAMA/APSR rules |
 | 3 | Yield simulation (pvlib + PVGIS weather data) and a PVsyst-style PDF report |
 | 4 | Satellite layout ("maximise area"), multiple POCs per site, transformer checks |
 | 5 | Consumption-based design from a load CSV |

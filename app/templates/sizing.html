@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Sizing · {{ p.name }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <h1>String &amp; inverter sizing</h1>
+    <div class="muted"><a href="/projects/{{ p.id }}">{{ p.name }}</a> · {{ p.client.name }}</div>
+  </div>
+  <div class="actions"><a class="btn" href="/projects/{{ p.id }}">Back to project</a></div>
+</div>
+
+<div class="panel">
+  <h2>Recommend a design</h2>
+  <form method="get" action="/projects/{{ p.id }}/sizing" class="fields">
+    <label class="wide">PV module
+      <select name="module_id">
+        {% for m in modules %}<option value="{{ m.id }}" {{ 'selected' if (rec and rec.module and rec.module.id==m.id) or (not rec and m.id==p.module_id) }}>{{ m.label }}{{ '' if m.sizing_ready else ' (no electrical values)' }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Design for
+      <select name="target_kind">{% for k, lab in targets.items() %}<option value="{{ k }}" {{ 'selected' if rec and rec.target_kind==k }}>{{ lab }}</option>{% endfor %}</select>
+    </label>
+    <label>Target <input name="target" value="{{ rec.target if rec else ('%g'|format(p.dc_kwp) if p.dc_kwp else '') }}" inputmode="decimal" required></label>
+    <label>Inverters to consider
+      <select name="scope">
+        <option value="any">Any in the library</option>
+        {% for k, lab in categories.items() %}<option value="{{ k }}" {{ 'selected' if rec and rec.scope==k }}>{{ lab }} only</option>{% endfor %}
+        {% for v in inverters %}<option value="{{ v.id }}" {{ 'selected' if rec and rec.scope==v.id|string }}>{{ v.make }} {{ v.model }} only</option>{% endfor %}
+      </select>
+    </label>
+    <div><label>&nbsp;</label><button class="btn primary" data-busy="Working…">Recommend</button></div>
+  </form>
+  <p class="small muted">Uses this project's phases ({{ p.phases }}-phase), temperatures, connector choice and connection limit. Only designs that pass every hard rule are shown.</p>
+  {% if options is not none %}
+    {% if options %}
+    <table>
+      <thead><tr><th>Inverter</th><th class="r">Qty</th><th class="r">Modules</th><th>Strings</th><th class="r">DC kWp</th><th class="r">AC kW</th><th class="r">DC/AC</th><th>Check</th><th></th></tr></thead>
+      <tbody>
+      {% for o in options %}
+        <tr>
+          <td>{{ o.inverter.make }} {{ o.inverter.model }}</td>
+          <td class="r num">{{ o.inverter_qty }}</td>
+          <td class="r num">{{ o.module_count }}</td>
+          <td class="num">{{ o.strings }} × {{ o.modules_per_string }}</td>
+          <td class="r num">{{ o.result.dc_kwp|num }}</td>
+          <td class="r num">{{ o.result.ac_kw|num }}</td>
+          <td class="r num">{{ o.result.ratio|num }}</td>
+          <td>{% if o.result.warnings %}<span class="pill warn" title="{{ o.result.warnings|map(attribute='label')|join('; ') }}">{{ o.result.warnings|length }} warning{{ 's' if o.result.warnings|length > 1 }}</span>{% else %}<span class="pill ok">passes</span>{% endif %}</td>
+          <td><form method="post" action="/projects/{{ p.id }}/sizing/apply">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+            <input type="hidden" name="module_id" value="{{ rec.module.id }}">
+            <input type="hidden" name="inverter_id" value="{{ o.inverter.id }}">
+            <input type="hidden" name="inverter_qty" value="{{ o.inverter_qty }}">
+            <input type="hidden" name="module_count" value="{{ o.module_count }}">
+            <input type="hidden" name="strings" value="{{ o.strings }}">
+            <button class="btn small">Use this</button></form></td>
+        </tr>
+        {% if o.result.warnings %}<tr class="sub"><td colspan="9" class="small muted">{{ o.result.warnings|map(attribute='label')|join(' · ') }}</td></tr>{% endif %}
+      {% endfor %}
+      </tbody>
+    </table>
+    {% elif rec.module and not rec.module.sizing_ready %}
+    <div class="flash warn">{{ rec.module.label }} has no electrical values yet. Upload its datasheet in the <a href="/library">equipment library</a>.</div>
+    {% else %}
+    <div class="flash warn">No design passes every hard rule for that target. Try another inverter range or target, or check the temperatures and connection limit below.</div>
+    {% endif %}
+  {% endif %}
+</div>
+
+<div class="grid-sizing">
+  <form method="post" action="/projects/{{ p.id }}/sizing" id="sizing-form" data-preview="/projects/{{ p.id }}/sizing/preview" class="panel">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <h2>Design</h2>
+    <div class="fields one">
+      <label>PV module
+        <select name="module_id"><option value="">Choose…</option>
+          {% for m in modules %}<option value="{{ m.id }}" {{ 'selected' if m.id==p.module_id }}>{{ m.label }}</option>{% endfor %}
+        </select></label>
+      <div class="pair">
+        <label>Modules <input name="module_count" value="{{ p.module_count or '' }}" inputmode="numeric"></label>
+        <label>Strings <input name="strings" value="{{ p.strings or '' }}" inputmode="numeric"></label>
+      </div>
+      <label>Inverter
+        <select name="inverter_id"><option value="">Choose…</option>
+          {% for cat, lab in categories.items() %}{% set items = inverters|selectattr('category', 'equalto', cat)|list %}{% if items %}<optgroup label="{{ lab }}">
+          {% for v in items %}<option value="{{ v.id }}" {{ 'selected' if v.id==p.inverter_id }}>{{ v.label }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}
+        </select></label>
+      <div class="pair">
+        <label>Inverter quantity <input name="inverter_qty" value="{{ p.inverter_qty or '' }}" inputmode="numeric"></label>
+        <label>Strings per MPPT <input name="mppt_layout" value="{{ p.mppt_layout or '' }}" placeholder="automatic"><span class="hint">Per inverter, e.g. 2/1</span></label>
+      </div>
+      <div><label>Connection</label><div class="radios">
+        <label><input type="radio" name="phases" value="1" {{ 'checked' if p.phases==1 }}> 1 phase</label>
+        <label><input type="radio" name="phases" value="3" {{ 'checked' if p.phases!=1 }}> 3 phases</label></div></div>
+      <label>Connection limit (kW AC) <input name="connection_limit_kw" value="{{ '%g'|format(p.connection_limit_kw) if p.connection_limit_kw is not none else '' }}" inputmode="decimal"><span class="hint">Approved load, spare transformer capacity or POC limit. Blank = none</span></label>
+      <label class="check"><input type="checkbox" name="hv_connectors" value="yes" {{ 'checked' if p.hv_connectors }}> High-voltage DC connectors fitted (e.g. MC4 Evo2)</label>
+    </div>
+    <h3 class="spaced">Site temperatures</h3>
+    <div class="pair">
+      <label>Record low (°C) <input name="t_min_c" value="{{ '%g'|format(p.t_min_c) if p.t_min_c is not none else '' }}" placeholder="{{ '%g'|format(settings.t_min_c) }}" inputmode="decimal"></label>
+      <label>Max. ambient (°C) <input name="t_max_c" value="{{ '%g'|format(p.t_max_c) if p.t_max_c is not none else '' }}" placeholder="{{ '%g'|format(settings.t_max_c) }}" inputmode="decimal"></label>
+    </div>
+    <p class="small muted">Blank uses the rule profile's value (shown greyed). Weather data fills these automatically in Phase 3.</p>
+    <h3 class="spaced">Cables <span class="muted">(optional)</span></h3>
+    <div class="pair">
+      <label>DC string run, one way (m) <input name="dc_cable_m" value="{{ '%g'|format(p.dc_cable_m) if p.dc_cable_m is not none else '' }}" inputmode="decimal"></label>
+      <label>DC size (mm²) <input name="dc_cable_mm2" value="{{ '%g'|format(p.dc_cable_mm2) if p.dc_cable_mm2 is not none else '' }}" inputmode="decimal"></label>
+      <label>AC run to POC (m) <input name="ac_cable_m" value="{{ '%g'|format(p.ac_cable_m) if p.ac_cable_m is not none else '' }}" inputmode="decimal"></label>
+      <label>AC size (mm²) <input name="ac_cable_mm2" value="{{ '%g'|format(p.ac_cable_mm2) if p.ac_cable_mm2 is not none else '' }}" inputmode="decimal"></label>
+    </div>
+    <h3 class="spaced">Rules</h3>
+    <label>Rule profile
+      <select name="rule_profile_id"><option value="">Default</option>
+        {% for x in profiles %}<option value="{{ x.id }}" {{ 'selected' if x.id==p.rule_profile_id }}>{{ x.name }}{{ ' (default)' if x.is_default }}</option>{% endfor %}
+      </select><span class="hint"><a href="/rules">Edit rule profiles</a></span></label>
+    <div class="bar"><button class="btn primary">Save design</button></div>
+  </form>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Rules check</h2><span class="small muted" id="preview-state">Checks as you type</span></div>
+    <div id="sizing-results">{% include "_sizing_results.html" %}</div>
+  </div>
+</div>
+{% endblock %}

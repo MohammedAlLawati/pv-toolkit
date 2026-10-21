@@ -52,6 +52,9 @@ INVERTER_FIELDS: list[Field] = [
     Field("mppt_iscs", "Max. short-circuit current per MPPT", "str", unit="A", group="DC input",
           hint="per MPPT separated by '/', e.g. 40/20"),
     Field("max_connector_current_a", "Max. current per DC connector", unit="A", group="DC input"),
+    Field("connector_limit_v", "Max. DC voltage with the standard connectors", unit="V", group="DC input",
+          hint="only when a footnote limits it below the max. PV input voltage, e.g. 1000 V unless "
+               "MC4 Evo2 connectors are used"),
 
     Field("max_eff_pct", "Max. efficiency", unit="%", group="Efficiency"),
     Field("euro_eff_pct", "European efficiency", unit="%", group="Efficiency"),

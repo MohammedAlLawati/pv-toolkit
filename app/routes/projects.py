@@ -84,7 +84,12 @@ def project_view(pid: int, request: Request, db: Session = Depends(get_db)):
         if key == "design":
             title += " (above 11 kW AC)" if p.above_11kw else " (11 kW AC and below)"
         docs.append({"key": key, "title": title, "missing": dc.missing_fields(key, p)})
-    return render(request, "project_view.html", nav="projects", p=p, docs=docs,
+    from .sizing import project_check
+    from ..sizing.rules import settings_for
+    check = project_check(db, p)
+    block_design = check.blocked and settings_for(db, p).block_design_form
+    return render(request, "project_view.html", nav="projects", p=p, docs=docs, check=check,
+                  block_design=block_design,
                   pdf_ok=soffice_available(), doc_rows=NAMA_DOC_ROWS,
                   connection_types=CONNECTION_TYPES, mounting_types=MOUNTING_TYPES)
 
@@ -148,6 +153,10 @@ async def project_save(request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(p)
     warn = _design_warnings(p)
+    from .sizing import project_check
+    chk = project_check(db, p)
+    if chk.fails:
+        warn.append(f"Design check: {len(chk.fails)} hard rule(s) fail. See String & inverter sizing.")
     flash(request, "Project saved." + (" " + " ".join(warn) if warn else ""),
           "warn" if warn else "ok")
     return redirect(f"/projects/{p.id}")
@@ -215,6 +224,13 @@ def project_delete(pid: int, request: Request, db: Session = Depends(get_db)):
 
 # ---- documents -------------------------------------------------------------------------
 
+def _design_blocked(db: Session, p: Project) -> bool:
+    """The rule profile can block the NAMA design form while a hard rule fails."""
+    from .sizing import project_check
+    from ..sizing.rules import settings_for
+    return settings_for(db, p).block_design_form and project_check(db, p).blocked
+
+
 def _render(doc_key: str, p: Project) -> bytes:
     return render_docx(dc.template_for(doc_key, p), dc.build_input(p)).docx
 
@@ -224,6 +240,8 @@ async def project_document(pid: int, doc_key: str, ext: str, db: Session = Depen
     p = _get(db, pid)
     if doc_key not in dc.DOCS or ext not in ("docx", "pdf"):
         raise HTTPException(404)
+    if doc_key == "design" and _design_blocked(db, p):
+        raise HTTPException(409, "The design fails a hard rule; see String & inverter sizing.")
     data = await run_in_threadpool(_render, doc_key, p)
     if ext == "pdf":
         data = await run_in_threadpool(docx_to_pdf, data)
@@ -241,6 +259,8 @@ async def project_pack(pid: int, keys: str = "initial,agency,design", pdf: int =
                        db: Session = Depends(get_db)):
     p = _get(db, pid)
     wanted = [k for k in keys.split(",") if k in dc.DOCS]
+    if "design" in wanted and _design_blocked(db, p):
+        raise HTTPException(409, "The design fails a hard rule; see String & inverter sizing.")
 
     def build() -> bytes:
         buf = io.BytesIO()

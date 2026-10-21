@@ -82,6 +82,13 @@ def unlock(username: str | None = None) -> None:
     print("Unlocked.")
 
 
+STARTER_ELECTRICAL = dict(
+    voc=49.52, isc=13.94, vmp=41.80, imp=13.04, tc_voc_pct=-0.28, tc_isc_pct=0.048,
+    tc_pmax_pct=-0.35, noct_c=45, max_system_v=1500, max_fuse_a=25, cells=144,
+    notes="Electrical values entered from Jinko's public datasheet, not from your copy. "
+          "Check them, or upload your datasheet to replace them.")
+
+
 def seed() -> None:
     """Starter records. Datasheet values should be checked against current datasheets."""
     with SessionLocal() as db:
@@ -98,6 +105,13 @@ def seed() -> None:
             db.add(Module(make="Jinko Solar", model="JKM545M-72HL4-V", wp=545,
                           technology="Mono PERC half-cut", length_mm=2256, width_mm=1133,
                           thickness_mm=35))
+            db.flush()
+        starter = db.scalar(select(Module).where(Module.model == "JKM545M-72HL4-V"))
+        if starter is not None and starter.voc is None:
+            # electrical values from Jinko's public Tiger Pro 72HC datasheet; not yet checked
+            # against the user's own copy, which the note says
+            for k, v in STARTER_ELECTRICAL.items():
+                setattr(starter, k, v)
         db.commit()
         from .seed import import_sungrow_mena
         added, updated = import_sungrow_mena(db)

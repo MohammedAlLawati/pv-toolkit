@@ -146,6 +146,7 @@ class Inverter(Base):
     mppt_currents: Mapped[str | None] = mapped_column(String(120))  # "32/16"  (A)
     mppt_iscs: Mapped[str | None] = mapped_column(String(120))      # "40/20"  (A)
     max_connector_current_a: Mapped[float | None] = mapped_column(Float)
+    connector_limit_v: Mapped[float | None] = mapped_column(Float)  # e.g. 1000 V for standard MC4 on RT
     # summary numbers (largest MPPT), kept in step with the lists above
     strings_per_mppt: Mapped[int | None] = mapped_column(Integer)
     max_current_per_mppt: Mapped[float | None] = mapped_column(Float)
@@ -183,6 +184,15 @@ class Inverter(Base):
             elif getattr(self, single) is not None and n:
                 v = getattr(self, single)
                 setattr(self, lst, "/".join([f"{v:g}"] * n))
+
+
+class RuleProfile(Base):
+    """A set of design-rule values and severities (see sizing/rules.py)."""
+    __tablename__ = "rule_profiles"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    settings_json: Mapped[str] = mapped_column(Text, default="")
 
 
 # Documents Required rows on the NAMA design approval form (row number -> text)
@@ -253,6 +263,19 @@ class Project(Base):
     phases: Mapped[int] = mapped_column(Integer, default=3)
     internal_transformer: Mapped[bool] = mapped_column(Boolean, default=False)
     annual_gen_kwh: Mapped[float | None] = mapped_column(Float)
+
+    # sizing (Phase 2)
+    rule_profile_id: Mapped[int | None] = mapped_column(ForeignKey("rule_profiles.id", ondelete="SET NULL"))
+    rule_profile: Mapped[RuleProfile | None] = relationship()
+    mppt_layout: Mapped[str] = mapped_column(String(80), default="")      # strings per MPPT, e.g. "2/1"
+    t_min_c: Mapped[float | None] = mapped_column(Float)                  # site record low
+    t_max_c: Mapped[float | None] = mapped_column(Float)                  # site max. ambient
+    hv_connectors: Mapped[bool] = mapped_column(Boolean, default=False)   # e.g. MC4 Evo2 fitted
+    connection_limit_kw: Mapped[float | None] = mapped_column(Float)      # POC / transformer / approved load
+    dc_cable_m: Mapped[float | None] = mapped_column(Float)
+    dc_cable_mm2: Mapped[float | None] = mapped_column(Float)
+    ac_cable_m: Mapped[float | None] = mapped_column(Float)
+    ac_cable_mm2: Mapped[float | None] = mapped_column(Float)
 
     # commercial
     subtotal_omr: Mapped[float | None] = mapped_column(Float)

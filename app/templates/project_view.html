@@ -19,6 +19,19 @@
   <div><span>Annual generation</span><b>{{ p.annual_gen_kwh|num(0) }} kWh</b></div>
 </div>
 
+<div class="panel design-check">
+  <div class="panel-head">
+    <h2>Design check {% set r = check %}{% include "_sizing_pill.html" %}</h2>
+    <a class="btn small primary" href="/projects/{{ p.id }}/sizing">Open sizing</a>
+  </div>
+  {% for c in (check.fails + check.unknown + check.warnings)[:6] %}
+    <div class="small ck-line ck-{{ c.status }}"><b>{{ c.label }}</b>{% if c.value %}: {{ c.value }}{% if c.limit %} (limit {{ c.limit }}){% endif %}{% endif %}. {{ c.detail }}</div>
+  {% else %}
+    <div class="small ok-text">Every rule passes{% if check.modules_per_string %}: {{ p.strings }} strings of {{ check.modules_per_string }} modules{% endif %}.</div>
+  {% endfor %}
+  {% if check.blocked %}<div class="small muted spaced-top">Yield reports stay blocked until every hard rule passes.</div>{% endif %}
+</div>
+
 <div class="grid2">
   <div class="panel">
     <h2>Documents</h2>
@@ -30,13 +43,14 @@
           {% else %}<div class="ready">All fields filled</div>{% endif %}
         </div>
         <div class="btns">
+          {% if d.key == 'design' and block_design %}<span class="pill err">Blocked by design check</span>{% else %}
           <a class="btn small" href="/projects/{{ p.id }}/documents/{{ d.key }}.docx">Word</a>
-          {% if pdf_ok %}<a class="btn small" href="/projects/{{ p.id }}/documents/{{ d.key }}.pdf">PDF</a>{% endif %}
+          {% if pdf_ok %}<a class="btn small" href="/projects/{{ p.id }}/documents/{{ d.key }}.pdf">PDF</a>{% endif %}{% endif %}
         </div>
       </div>
     {% endfor %}
     <p class="small muted">Missing fields are left blank in the document so you can still print and fill by hand.</p>
-    <p><a class="btn sun" href="/projects/{{ p.id }}/pack.zip?keys=initial,agency,design">Download NAMA submission pack (.zip)</a></p>
+    <p><a class="btn sun" href="/projects/{{ p.id }}/pack.zip?keys=initial,agency{{ '' if block_design else ',design' }}">Download NAMA submission pack (.zip)</a></p>
   </div>
 
   <div>
