@@ -152,7 +152,7 @@ def module_values(m, t: dict, s: Settings) -> dict:
     """Per-module voltages at the design temperatures and design currents."""
     tv = m.tc_voc_pct / 100
     tm = (tc_vmp_pct(m) or m.tc_voc_pct) / 100
-    gain = 1 + (m.bifaciality or 0) * s.bifacial_gain
+    gain = 1 + (m.bifaciality or 0) * s.rear_irradiance / 1000
     return {
         "voc_cold": m.voc * (1 + tv * (t["cell_cold"] - 25)),
         "vmp_cold": m.vmp * (1 + tm * (t["cell_cold"] - 25)),
@@ -185,14 +185,18 @@ def _enabled(s: Settings, key: str) -> bool:
     return s.severity.get(key, "off") != "off"
 
 
+def _hard(s: Settings, key: str) -> bool:
+    return s.severity.get(key) == "hard"
+
+
 def mppt_caps(lims: list[dict], mv: dict, s: Settings, electrical: bool = True) -> list[int]:
     """How many strings each MPPT can take under the enabled rules."""
     caps = []
     for lim in lims:
         cap = lim["connectors"] if lim["connectors"] else 99
-        if electrical and _enabled(s, "isc_mppt") and lim["isc"]:
+        if electrical and _hard(s, "isc_mppt") and lim["isc"]:
             cap = min(cap, math.floor(lim["isc"] / mv["isc_design"] + 1e-9))
-        if electrical and _enabled(s, "imp_mppt") and lim["imp"]:
+        if electrical and _hard(s, "imp_mppt") and lim["imp"]:
             cap = min(cap, math.floor(lim["imp"] / mv["imp_design"] + 1e-9))
         caps.append(max(cap, 0))
     return caps

@@ -54,8 +54,8 @@ def import_jinko_modules(db: Session) -> tuple[int, int]:
     for spec in MODULES:
         spec = dict(spec)
         fname = spec.pop("datasheet")
-        ds = db.scalar(select(Datasheet).where(Datasheet.filename == fname))
-        if ds is None:
+        ds = db.scalar(select(Datasheet).where(Datasheet.filename == fname)) if fname else None
+        if ds is None and fname:
             ds = Datasheet(kind="module", filename=fname, mime="application/pdf",
                            data=(DATASHEET_DIR / fname).read_bytes(), method="manual")
             db.add(ds)
@@ -70,6 +70,7 @@ def import_jinko_modules(db: Session) -> tuple[int, int]:
         for f in MODULE_FIELDS:
             if f.key in spec:
                 setattr(mod, f.key, spec[f.key])
-        mod.datasheet = ds
+        if ds is not None:
+            mod.datasheet = ds
     db.commit()
     return added, updated

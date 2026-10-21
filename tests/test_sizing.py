@@ -90,7 +90,8 @@ def test_per_mppt_limits_use_the_lists():
     # forcing 2 strings onto MPPT 2 breaks its 1 input, 16 A and 20 A limits
     r = check(design(module_count=33, strings=3, mppt_layout="1/2"), S)
     k = by_key(r)
-    assert k["strings_mppt"].status == k["isc_mppt"].status == k["imp_mppt"].status == "fail"
+    assert k["strings_mppt"].status == k["isc_mppt"].status == "fail"
+    assert k["imp_mppt"].status == "warn"   # over the current limit the inverter only clips
     # 4 strings don't fit a 2/1 inverter
     r = check(design(module_count=44, strings=4), S)
     assert by_key(r)["strings_mppt"].status == "fail" and r.groups[0].overflow == 1
@@ -262,8 +263,9 @@ def test_jinko_tiger_neo_datasheet_and_seed(c):
     from app.seed.jinko_modules import MODULES, TIGER_NEO_66HL5
     pdf = (Path(__file__).resolve().parents[1] / "app" / "seed" / "datasheets" / TIGER_NEO_66HL5).read_bytes()
     res = dsx.extract(pdf, "application/pdf", "module")
-    assert [m["model"] for m in res.models] == [m["model"] for m in MODULES]
-    for got, want in zip(res.models, MODULES):
+    sheet = [m for m in MODULES if m["datasheet"] == TIGER_NEO_66HL5]
+    assert [m["model"] for m in res.models] == [m["model"] for m in sheet]
+    for got, want in zip(res.models, sheet):
         for k in ("wp", "vmp", "imp", "voc", "isc", "efficiency_pct", "tc_voc_pct", "tc_isc_pct",
                   "tc_pmax_pct", "bifaciality", "max_system_v", "max_fuse_a", "cells"):
             assert got[k] == pytest.approx(want[k]), (want["model"], k)
@@ -273,3 +275,5 @@ def test_jinko_tiger_neo_datasheet_and_seed(c):
     with SessionLocal() as db:
         mods = db.query(Module).filter(Module.model.like("JKM7%N-66HL5-BDV")).all()
         assert len(mods) == 6 and all(m.sizing_ready and m.datasheet_id for m in mods)
+        m620 = db.query(Module).filter(Module.model == "JKM620N-78HL4-BDV").one()
+        assert m620.sizing_ready and abs(m620.vmp * m620.imp - 620) < 3

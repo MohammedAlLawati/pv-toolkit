@@ -48,11 +48,12 @@ PARAMS: list[Param] = [
           "Cell temp = ambient + (NOCT − 20) / 800 × irradiance", "Site temperatures"),
     Param("default_noct", "NOCT when the datasheet gives none", 45, "°C", "", "Site temperatures"),
 
-    Param("isc_factor", "Short-circuit safety factor", 1.25, "×",
-          "String Isc × this factor is compared with the MPPT and connector limits (IEC 62548 uses 1.25)",
-          "Currents"),
-    Param("bifacial_gain", "Rear-side irradiance gain for bifacial modules", 0.10, "fraction",
-          "Isc and Imp are raised by bifaciality × this gain, e.g. 0.80 × 0.10 = +8 %", "Currents"),
+    Param("isc_factor", "Short-circuit safety factor (K_I)", 1.25, "×",
+          "IEC 62548-1: max. array short-circuit current = 1.25 × Isc(STC). It is compared with the "
+          "inverter's per-MPPT short-circuit limit, the connector rating and the fuse check", "Currents"),
+    Param("rear_irradiance", "Rear-side irradiance for bifacial modules", 135, "W/m²",
+          "Isc and Imp are raised by bifaciality × this / 1000. 135 W/m² is the BNPI test condition "
+          "on bifacial datasheets (e.g. 0.80 × 0.135 = +10.8 %)", "Currents"),
 
     Param("dcac_min", "DC/AC ratio: lowest", 1.00, "", "", "DC/AC ratio"),
     Param("dcac_target", "DC/AC ratio: target for recommendations", 1.20, "", "", "DC/AC ratio"),
@@ -87,8 +88,10 @@ RULES: list[Rule] = [
     Rule("vmp_min", "String Vmp at hot cell temperature ≥ MPPT minimum", "hard"),
     Rule("vmp_max", "String Vmp at record low ≤ MPPT maximum", "hard"),
     Rule("strings_mppt", "Strings on each MPPT ≤ its input connectors", "hard"),
-    Rule("isc_mppt", "Isc × safety factor on each MPPT ≤ its short-circuit limit", "hard"),
-    Rule("imp_mppt", "Operating current on each MPPT ≤ its current limit", "hard"),
+    Rule("isc_mppt", "Isc × safety factor on each MPPT ≤ its short-circuit limit", "hard",
+         "The inverter's absolute limit: above it the input can be damaged"),
+    Rule("imp_mppt", "Operating current on each MPPT ≤ its current limit", "warn",
+         "Above it the inverter limits the current and clips output; it isn't a safety limit"),
     Rule("connector_current", "String Isc × safety factor ≤ the DC connector rating", "hard"),
     Rule("ac_connection", "AC capacity ≤ the project's connection limit", "hard",
          "Approved load, spare transformer capacity or POC limit entered on the project"),

@@ -17,3 +17,13 @@ _TN66_ROWS = [(710, 40.65, 17.47, 48.73, 18.53, 22.86), (715, 40.77, 17.54, 48.8
 
 MODULES = [dict(_TN66, model=f"JKM{wp}N-66HL5-BDV", wp=wp, vmp=vmp, imp=imp, voc=voc, isc=isc,
                 efficiency_pct=eff) for wp, vmp, imp, voc, isc, eff in _TN66_ROWS]
+
+# Tiger Neo 78HL4-BDV 620 Wp. No datasheet from the user yet: values from the 610-630 W
+# datasheet as listed by a distributor (sun.store). Bifaciality is Jinko's usual 80 %.
+MODULES.append(dict(
+    make="Jinko Solar", model="JKM620N-78HL4-BDV", wp=620, technology="N-type TOPCon bifacial, dual glass",
+    cells=156, efficiency_pct=22.18, vmp=45.93, imp=13.50, voc=55.58, isc=14.19, tc_voc_pct=-0.25,
+    tc_isc_pct=0.045, tc_pmax_pct=-0.29, bifaciality=0.80, max_system_v=1500, max_fuse_a=30,
+    length_mm=2465, width_mm=1134, thickness_mm=30, weight_kg=34.6, datasheet=None,
+    notes="Values from the Jinko 610-630 W datasheet as published by a distributor, not from your "
+          "copy. Bifaciality assumed 80 %. Upload your datasheet to confirm."))

@@ -366,3 +366,9 @@ Small-scale Grid-connected Solar PV" and the NAMA rules**. These were requested 
 - Jinko Tiger Neo JKM710-735N-66HL5-BDV (user's datasheet) is a built-in module set
   (`seed/jinko_modules.py`, library button, `seed`). The text reader now handles Jinko's
   "detached table" layout (`_detached_module_table` in datasheets.py).
+- Current rules (user asked for "harsh but within reason", 21 Oct): Isc per MPPT is a hard rule at
+  IEC 62548-1 K_I = 1.25 × Isc(STC) × (1 + bifaciality × 135/1000) (BNPI rear irradiance);
+  operating current per MPPT is a warning (the inverter clips). Auto-allocation and recommendations
+  only respect hard rules. Result: 720 W Tiger Neo = 1 string per 40 A MPPT; 620 W = 2.
+- JKM620N-78HL4-BDV is in the Jinko seed set with values from a distributor's copy of Jinko's
+  610-630 W datasheet (no user datasheet yet).
