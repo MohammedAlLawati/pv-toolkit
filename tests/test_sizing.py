@@ -115,7 +115,7 @@ def test_ac_limits_and_warnings():
     r = check(design(connection_limit_kw=8), S)
     assert by_key(r)["ac_connection"].status == "fail"
     s = rl.defaults()
-    s.values["single_phase_max_kw"] = 5
+    s.values["single_phase_max_a"] = 16
     r = check(design(phases=1), s)
     assert by_key(r)["phase_match"].status == "fail"         # SG10RT is 3-phase
     assert by_key(r)["single_phase"].status == "fail"
@@ -248,3 +248,28 @@ def test_rule_profile_edits_and_design_form_blocking(c):
 
     r = c.post(f"/rules/{prof_id}/copy", data={"csrf_token": tok})
     assert "(copy)" in r.text
+
+
+def test_apsr_notes():
+    r = check(design(inverter=INV["SG12RT-P2"], module_count=26, strings=2), S)
+    assert any("LVRT" in n for n in r.notes) and any("remote control" in n for n in r.notes)
+    assert not any("LVRT" in n for n in check(design(), S).notes)
+
+
+def test_jinko_tiger_neo_datasheet_and_seed(c):
+    from pathlib import Path
+    from app import datasheets as dsx
+    from app.seed.jinko_modules import MODULES, TIGER_NEO_66HL5
+    pdf = (Path(__file__).resolve().parents[1] / "app" / "seed" / "datasheets" / TIGER_NEO_66HL5).read_bytes()
+    res = dsx.extract(pdf, "application/pdf", "module")
+    assert [m["model"] for m in res.models] == [m["model"] for m in MODULES]
+    for got, want in zip(res.models, MODULES):
+        for k in ("wp", "vmp", "imp", "voc", "isc", "efficiency_pct", "tc_voc_pct", "tc_isc_pct",
+                  "tc_pmax_pct", "bifaciality", "max_system_v", "max_fuse_a", "cells"):
+            assert got[k] == pytest.approx(want[k]), (want["model"], k)
+        assert dsx.check("module", got) == []
+    tok = csrf(c.get("/library").text)
+    c.post("/library/import-jinko", data={"csrf_token": tok})
+    with SessionLocal() as db:
+        mods = db.query(Module).filter(Module.model.like("JKM7%N-66HL5-BDV")).all()
+        assert len(mods) == 6 and all(m.sizing_ready and m.datasheet_id for m in mods)

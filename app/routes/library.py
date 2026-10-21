@@ -68,6 +68,7 @@ def library(request: Request, cat: str = "", db: Session = Depends(get_db)):
     return render(request, "library.html", nav="library", cat=cat, categories=CATEGORIES,
                   modules=db.scalars(select(Module).order_by(Module.make, Module.wp)).all(),
                   inverters=inverters, has_sungrow=has_sungrow,
+                  has_jinko=db.scalar(select(Module.id).where(Module.model == "JKM720N-66HL5-BDV")) is not None,
                   claude_on=bool(os.environ.get("ANTHROPIC_API_KEY")))
 
 
@@ -76,6 +77,14 @@ def import_sungrow(request: Request, db: Session = Depends(get_db)):
     from ..seed import import_sungrow_mena
     added, updated = import_sungrow_mena(db)
     flash(request, f"Sungrow MENA range loaded: {added} added, {updated} refreshed.")
+    return redirect("/library")
+
+
+@router.post("/library/import-jinko")
+def import_jinko(request: Request, db: Session = Depends(get_db)):
+    from ..seed import import_jinko_modules
+    added, updated = import_jinko_modules(db)
+    flash(request, f"Jinko Tiger Neo modules loaded: {added} added, {updated} refreshed.")
     return redirect("/library")
 
 

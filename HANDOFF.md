@@ -359,5 +359,10 @@ Small-scale Grid-connected Solar PV" and the NAMA rules**. These were requested 
 - Phase 3 is next and must refuse the report when `project_check(db, p).blocked` is True.
 - `seed` fills the starter JKM545M-72HL4-V with electrical values from Jinko's public datasheet
   (flagged in its notes as not checked against the user's copy).
-- Still provisional: AC limits (max per connection, 1-phase max) are blank until the APSR/NAMA
-  guidelines arrive; default temps 5 °C / 50 °C.
+- APSR values in the default profile (from a public summary of APSR's 2017 "Technical Guidelines
+  for Solar PV Systems"; apsr.om's PDF needs JavaScript and couldn't be read): 1-phase LV only
+  if phase current ≤ 16 A (hard rule), LVRT from 11.08 kW and remote control from 10 kW on LV
+  (reminder notes). Max. AC per connection still blank. Default temps 5 °C / 50 °C.
+- Jinko Tiger Neo JKM710-735N-66HL5-BDV (user's datasheet) is a built-in module set
+  (`seed/jinko_modules.py`, library button, `seed`). The text reader now handles Jinko's
+  "detached table" layout (`_detached_module_table` in datasheets.py).

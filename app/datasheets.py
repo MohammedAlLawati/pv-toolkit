@@ -303,17 +303,22 @@ def extract_from_text(data: bytes, kind: str) -> ExtractResult:
             if cand:
                 names = cand
                 break
+    seen = set()
+    detached = _detached_module_table(lines, text) if not names and kind == "module" else None
+    if detached:
+        rows, seen = detached
+        names = [r["model"] for r in rows]
     if not names:
         return ExtractResult([], "text", ["Couldn't find model names in the text."])
     n = len(names)
-    rows = [{"model": nm} for nm in names]
+    if not detached:
+        rows = [{"model": nm} for nm in names]
 
     make = next((mk for mk in KNOWN_MAKES if re.search(rf"\b{re.escape(mk)}\b", text, re.I)), "")
     for r in rows:
         r["make"] = make
 
     labels = INV_LABELS if kind == "inverter" else MOD_LABELS
-    seen = set()
     for ln in lines:
         for key, pat in labels.items():
             if key in seen:
@@ -344,6 +349,51 @@ def extract_from_text(data: bytes, kind: str) -> ExtractResult:
     return ExtractResult(rows, "text", warnings)
 
 
+TABLE_KEYS = ("wp", "vmp", "imp", "voc", "isc", "efficiency_pct")
+
+
+def _detached_module_table(lines: list[str], text: str):
+    """Module tables drawn as a graphic: the labels are listed in one place and the rows of
+    numbers somewhere else (e.g. Jinko Tiger Neo). Match them up by order.
+
+    Returns (rows, keys filled) or None.
+    """
+    start = next((i for i, ln in enumerate(lines) if re.search(r"specifications?\s*\(?stc", ln, re.I)), None)
+    if start is None:
+        return None
+    order = []
+    for ln in lines[start + 1:start + 10]:
+        key = next((k for k in TABLE_KEYS if k not in order and re.search(MOD_LABELS[k], ln, re.I)), None)
+        if key is None or _nums(re.sub(r"\[[^]]*\]", "", ln)):
+            break
+        order.append(key)
+    if len(order) < 5 or order[0] != "wp":
+        return None
+    for i, ln in enumerate(lines):
+        if not re.fullmatch(r"\d{3}(?:\s+\d{3})+", ln):
+            continue
+        powers = [float(x) for x in ln.split()]
+        if powers != sorted(powers) or not 100 <= powers[0] <= 1000:
+            continue
+        n = len(powers)
+        block = [powers]
+        for nxt in lines[i + 1:i + len(order)]:
+            vals = _nums(nxt) if re.fullmatch(rf"(?:{NUM}\s*)+", nxt) else []
+            if len(vals) != n:
+                break
+            block.append(vals)
+        if len(block) != len(order):
+            continue
+        fam = re.search(r"\b([A-Z]{2,})(\d{3})-(\d{3})([A-Z0-9-]*)", text)
+        suffix = re.sub(r"(-Z\d+)?(-EN)?$", "", fam.group(4)) if fam else ""
+        rows = []
+        for j, wp in enumerate(powers):
+            model = f"{fam.group(1)}{wp:g}{suffix}" if fam else f"{wp:g} Wp"
+            rows.append({"model": model, **{k: block[r][j] for r, k in enumerate(order)}})
+        return rows, set(order)
+    return None
+
+
 def _assign(kind, key, rest, cells, rows, n, warnings):
     def spread(values, target):
         if len(values) == n:
@@ -356,7 +406,10 @@ def _assign(kind, key, rest, cells, rows, n, warnings):
             label = next((f.label for f in FIELDS[kind] if f.key == target), target)
             warnings.append(f"{label}: found {len(values)} values for {n} models, so it was left blank.")
 
-    if key == "min_start":
+    if key == "bifaciality" and re.search(r"pmax\W{0,3}\d", rest, re.I):
+        # "Voc: 98±5 %, Isc: 80±5 %, Pmax: 80±5 %": the power bifaciality is the one we want
+        spread([float(re.search(r"pmax\W{0,3}(\d+(?:\.\d+)?)", rest, re.I).group(1))], key)
+    elif key == "min_start":
         v = _nums(rest)
         if len(v) >= 2:
             for r in rows:

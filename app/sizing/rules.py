@@ -5,7 +5,9 @@ the sizing engine and the defaults all come from these lists, so adding a parame
 rule here makes it appear everywhere.
 
 The values in the default "APSR / NAMA" profile are common engineering practice. They are
-provisional until checked against the APSR connection guidelines and NAMA's rules.
+provisional until checked against the APSR connection guidelines and NAMA's rules. The
+1-phase, LVRT and remote-control values come from APSR's "Technical Guidelines for Solar PV
+Systems" (2017) as summarised publicly; the official PDF couldn't be read online.
 """
 from __future__ import annotations
 
@@ -58,8 +60,13 @@ PARAMS: list[Param] = [
 
     Param("max_ac_kw", "Max. AC capacity per connection", None, "kW",
           "Leave blank for no limit. Fill in from the APSR / NAMA rules", "Connection"),
-    Param("single_phase_max_kw", "Max. AC capacity on a 1-phase connection", None, "kW",
-          "Leave blank for no limit", "Connection"),
+    Param("single_phase_max_a", "Max. AC current on a 1-phase connection", 16, "A",
+          "APSR Technical Guidelines: 1-phase LV connection only if the phase current is ≤ 16 A "
+          "(about 3.7 kW at 230 V). Blank = no limit", "Connection"),
+    Param("lvrt_kw", "LVRT (low-voltage ride-through) needed from", 11.08, "kW",
+          "APSR Technical Guidelines. Shown as a reminder on designs at or above it", "Connection"),
+    Param("remote_control_kw", "Remote control needed on LV from", 10, "kW",
+          "APSR Technical Guidelines. Shown as a reminder", "Connection"),
 
     Param("dc_vdrop_max_pct", "Max. DC voltage drop", 1.5, "%", "String cable, at Vmp and Imp", "Cables"),
     Param("ac_vdrop_max_pct", "Max. AC voltage drop", 2.0, "%", "Inverter to point of connection", "Cables"),
@@ -86,7 +93,7 @@ RULES: list[Rule] = [
     Rule("ac_connection", "AC capacity ≤ the project's connection limit", "hard",
          "Approved load, spare transformer capacity or POC limit entered on the project"),
     Rule("ac_profile", "AC capacity ≤ the profile's max. per connection", "hard"),
-    Rule("single_phase", "1-phase AC capacity ≤ the profile's 1-phase max.", "hard"),
+    Rule("single_phase", "1-phase AC current ≤ the profile's 1-phase max.", "hard"),
     Rule("phase_match", "Inverter phases match the connection", "hard"),
 
     Rule("dcac_band", "DC/AC ratio inside the target band", "warn"),

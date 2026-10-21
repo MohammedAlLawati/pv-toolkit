@@ -113,9 +113,10 @@ def seed() -> None:
             for k, v in STARTER_ELECTRICAL.items():
                 setattr(starter, k, v)
         db.commit()
-        from .seed import import_sungrow_mena
+        from .seed import import_jinko_modules, import_sungrow_mena
         added, updated = import_sungrow_mena(db)
-    print(f"Seeded contractor, consultant, a starter module and the Sungrow MENA inverter range "
+        import_jinko_modules(db)
+    print(f"Seeded contractor, consultant, the Jinko modules and the Sungrow MENA inverter range "
           f"({added} added, {updated} refreshed).")
 
 

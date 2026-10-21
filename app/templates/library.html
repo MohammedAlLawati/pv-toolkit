@@ -17,6 +17,12 @@
   <form method="post" action="/library/import-sungrow"><input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn sun">Load into library</button></form>
 </div>
 {% endif %}
+{% if not has_jinko %}
+<div class="panel callout">
+  <div><b>Jinko Tiger Neo 66HL5-BDV</b><div class="muted small">6 bifacial modules, 710–735 Wp, from your datasheet. Values checked by hand; datasheet attached.</div></div>
+  <form method="post" action="/library/import-jinko"><input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn sun">Load into library</button></form>
+</div>
+{% endif %}
 
 <div class="panel">
   <div class="panel-head">

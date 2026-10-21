@@ -423,9 +423,16 @@ def _ac_checks(d: Design, s: Settings, r: Result, add) -> None:
     if s.max_ac_kw:
         add("ac_profile", r.ac_kw <= s.max_ac_kw + 1e-9, "Rule profile limit.",
             f"{r.ac_kw:,.2f} kW", f"{s.max_ac_kw:g} kW")
-    if d.phases == 1 and s.single_phase_max_kw:
-        add("single_phase", r.ac_kw <= s.single_phase_max_kw + 1e-9, "Rule profile limit.",
-            f"{r.ac_kw:,.2f} kW", f"{s.single_phase_max_kw:g} kW")
+    if d.phases == 1 and s.single_phase_max_a:
+        amps = (inv.max_ac_current_a or inv.ac_kw * 1000 / 230) * d.inverter_qty
+        add("single_phase", amps <= s.single_phase_max_a + 1e-9,
+            "Max. AC output current of the inverters on the phase.",
+            f"{amps:,.1f} A", f"{s.single_phase_max_a:g} A")
+    if s.lvrt_kw and r.ac_kw >= s.lvrt_kw:
+        r.notes.append(f"{r.ac_kw:,.2f} kW AC: APSR asks for low-voltage ride-through (LVRT) from "
+                       f"{s.lvrt_kw:g} kW. Check the inverter's grid-code certificate.")
+    if s.remote_control_kw and r.ac_kw >= s.remote_control_kw:
+        r.notes.append(f"APSR asks for remote control on LV systems from {s.remote_control_kw:g} kW.")
 
 
 def _cable_checks(d: Design, s: Settings, r: Result, add, sv, mv) -> None:
