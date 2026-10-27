@@ -4,8 +4,8 @@
 // Most files get a numeric id; a few app-wide ones use fixed string ids ("letterhead_top").
 
 const DB_NAME = "pv-toolkit";
-const DB_VERSION = 1;
-export const STORES = ["clients", "projects", "parties", "modules", "inverters", "rule_profiles", "files", "settings"];
+const DB_VERSION = 2;
+export const STORES = ["clients", "projects", "parties", "modules", "inverters", "rule_profiles", "files", "settings", "letters"];
 
 let _db = null;
 
