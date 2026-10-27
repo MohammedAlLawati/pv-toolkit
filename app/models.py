@@ -55,6 +55,9 @@ class Client(Base):
     governorate: Mapped[str] = mapped_column(String(80), default="")
     wilaya: Mapped[str] = mapped_column(String(80), default="")
     village: Mapped[str] = mapped_column(String(80), default="")
+    # companies only: the person who signs for the company (used on letters)
+    signatory_name: Mapped[str] = mapped_column(String(200), default="")
+    signatory_id: Mapped[str] = mapped_column(String(60), default="")
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     projects: Mapped[list["Project"]] = relationship(back_populates="client",
@@ -334,3 +337,64 @@ class Project(Base):
     @doc_status.setter
     def doc_status(self, value: dict[int, str]) -> None:
         self.doc_status_json = json.dumps({str(k): v for k, v in value.items()})
+
+
+# ---- letters ------------------------------------------------------------------------------
+
+class Letterhead(Base):
+    """Header and footer images printed on every letter page."""
+    __tablename__ = "letterheads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    top: Mapped[bytes | None] = mapped_column(LargeBinary)      # PNG
+    bottom: Mapped[bytes | None] = mapped_column(LargeBinary)   # PNG
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class LetterTemplate(Base):
+    """Wording of a letter. Body syntax is described in letters/defaults.py."""
+    __tablename__ = "letter_templates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(60), default="")   # built-in templates only
+    name: Mapped[str] = mapped_column(String(200))
+    audience: Mapped[str] = mapped_column(String(20), default="commercial")  # commercial | residential
+    recipient: Mapped[str] = mapped_column(Text, default="")
+    subject: Mapped[str] = mapped_column(Text, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    confirmation: Mapped[str] = mapped_column(Text, default="")
+    enclosures: Mapped[str] = mapped_column(Text, default="")   # one per line
+    purpose: Mapped[str] = mapped_column(Text, default="")      # default {{Purpose}}
+    ref_prefix: Mapped[str] = mapped_column(String(60), default="HTC/NEDC")
+    letterhead_id: Mapped[int | None] = mapped_column(ForeignKey("letterheads.id", ondelete="SET NULL"))
+    letterhead: Mapped[Letterhead | None] = relationship()
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class Letter(Base):
+    """A letter issued from a template: the values typed on the letter form."""
+    __tablename__ = "letters"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    template_id: Mapped[int | None] = mapped_column(ForeignKey("letter_templates.id", ondelete="SET NULL"))
+    template: Mapped[LetterTemplate | None] = relationship()
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL"))
+    client: Mapped[Client | None] = relationship()
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"))
+    project: Mapped["Project | None"] = relationship()
+    ref: Mapped[str] = mapped_column(String(80), default="")
+    letter_date: Mapped[date | None] = mapped_column(Date)
+    values_json: Mapped[str] = mapped_column(Text, default="{}")
+    points_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    @property
+    def values(self) -> dict[str, str]:
+        return json.loads(self.values_json or "{}")
+
+    @property
+    def points(self) -> list[dict[str, str]]:
+        return json.loads(self.points_json or "[]")
+
+    @property
+    def title(self) -> str:
+        return self.values.get("ClientName") or "Untitled letter"

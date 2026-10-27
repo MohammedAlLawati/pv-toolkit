@@ -50,6 +50,7 @@
       </div>
     {% endfor %}
     <p class="small muted">Missing fields are left blank in the document so you can still print and fill by hand.</p>
+    <p><a class="btn" href="/letters/new?project_id={{ p.id }}">Write a letter (e.g. to NEDC)</a></p>
     <p><a class="btn sun" href="/projects/{{ p.id }}/pack.zip?keys=initial,agency{{ '' if block_design else ',design' }}">Download NAMA submission pack (.zip)</a></p>
   </div>
 

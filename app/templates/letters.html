@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Letters{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>Letters</h1><div class="muted">Letters on the company letterhead, filled from a template. Pick a client or project and the details fill themselves in.</div></div>
+  <div class="actions"><a class="btn" href="/letters/templates/new">New template</a><a class="btn primary" href="/letters/new">New letter</a></div>
+</div>
+
+<div class="panel">
+  <h2>Templates</h2>
+  {% if templates %}
+  <table><thead><tr><th>Template</th><th>For</th><th>Reference</th><th></th></tr></thead><tbody>
+  {% for t in templates %}<tr>
+    <td><a href="/letters/templates/{{ t.id }}">{{ t.name }}</a></td>
+    <td>{{ audiences[t.audience] }}</td>
+    <td class="num">{{ t.ref_prefix }}/…</td>
+    <td class="r"><a class="btn small primary" href="/letters/new?template_id={{ t.id }}">Write letter</a>
+      <a class="btn small" href="/letters/templates/{{ t.id }}/sample.pdf">Sample PDF</a></td>
+  </tr>{% endfor %}
+  </tbody></table>
+  {% else %}<div class="empty">No templates yet.</div>{% endif %}
+</div>
+
+<div class="panel">
+  <h2>Issued letters</h2>
+  {% if letters %}
+  <table><thead><tr><th>Reference</th><th>Date</th><th>Client</th><th>Template</th><th></th></tr></thead><tbody>
+  {% for l in letters %}<tr>
+    <td class="num"><a href="/letters/{{ l.id }}">{{ l.ref }}</a></td>
+    <td class="num">{{ l.letter_date or '' }}</td>
+    <td>{{ l.title }}</td>
+    <td>{{ l.template.name if l.template else '(template deleted)' }}</td>
+    <td class="r">{% if l.template %}<a class="btn small" href="/letters/{{ l.id }}/letter.docx">Word</a>
+      <a class="btn small" href="/letters/{{ l.id }}/letter.pdf">PDF</a>{% endif %}</td>
+  </tr>{% endfor %}
+  </tbody></table>
+  {% else %}<div class="empty">No letters yet. Start with "New letter".</div>{% endif %}
+</div>
+
+<div class="panel">
+  <h2>Letterheads</h2>
+  <p class="small muted">The top image is printed as the page header and the bottom image as the footer, on every page.</p>
+  {% for h in letterheads %}
+  <div class="doc">
+    <div><b>{{ h.name }}</b> {% if h.is_default %}<span class="pill">default</span>{% endif %}
+      <div class="letterhead-thumbs">
+        {% if h.top %}<img src="/letters/letterheads/{{ h.id }}/top.png" alt="Header">{% else %}<span class="muted small">no header image</span>{% endif %}
+        {% if h.bottom %}<img src="/letters/letterheads/{{ h.id }}/bottom.png" alt="Footer">{% else %}<span class="muted small">no footer image</span>{% endif %}
+      </div>
+    </div>
+    <div class="btns"><a class="btn small" href="/letters/letterheads/{{ h.id }}">Edit</a></div>
+  </div>
+  {% endfor %}
+  <p><a class="btn small" href="/letters/letterheads/new">Add letterhead</a></p>
+</div>
+{% endblock %}

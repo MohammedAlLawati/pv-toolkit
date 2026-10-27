@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ head.name if head else 'New letterhead' }}{% endblock %}
+{% block content %}
+<div class="head"><div><h1>{{ head.name if head else 'New letterhead' }}</h1>
+  <div class="muted">PNG or JPG, as wide as the page. White space above and below the artwork is trimmed automatically.</div></div></div>
+<form method="post" action="/letters/letterheads/save" enctype="multipart/form-data" class="panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="id" value="{{ head.id if head else '' }}">
+  <div class="fields">
+    <label class="wide">Name <input name="name" value="{{ head.name if head else '' }}" required></label>
+    {% for part, label in [('top', 'Header (top of page)'), ('bottom', 'Footer (bottom of page)')] %}
+    <label class="wide">{{ label }} <input type="file" name="{{ part }}" accept="image/png,image/jpeg"></label>
+    {% if head and head[part] %}<div class="wide letterhead-thumbs"><img src="/letters/letterheads/{{ head.id }}/{{ part }}.png" alt="{{ label }}">
+      <label class="check"><input type="checkbox" name="remove_{{ part }}"> Remove</label></div>{% endif %}
+    {% endfor %}
+    <label class="check wide"><input type="checkbox" name="is_default" {{ 'checked' if head and head.is_default }}> Use for templates that don't name a letterhead</label>
+  </div>
+  <div class="bar"><a class="btn" href="/letters">Cancel</a><button class="btn primary">Save</button></div>
+</form>
+{% if head %}
+<form method="post" action="/letters/letterheads/{{ head.id }}/delete" data-confirm="Delete the letterhead {{ head.name }}?">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn danger small">Delete letterhead</button>
+</form>
+{% endif %}
+{% endblock %}

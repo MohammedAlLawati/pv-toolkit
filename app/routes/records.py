@@ -36,7 +36,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 # ---- clients ---------------------------------------------------------------------------
 
 CLIENT_FIELDS = ("name", "id_no", "mobile", "tel", "email", "governorate", "wilaya",
-                 "village", "notes")
+                 "village", "signatory_name", "signatory_id", "notes")
 
 
 @router.get("/clients")

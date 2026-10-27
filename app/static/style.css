@@ -217,3 +217,13 @@ tr.sub td { border-top: 0; padding-top: 0; }
 #sizing-results.stale { opacity: .55; transition: opacity .2s; }
 @media (max-width: 900px) { .grid-sizing { grid-template-columns: 1fr; } }
 table.checks td.num { white-space: nowrap; }
+
+/* letters */
+.grid-side { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.help code, .kv code { font-family: var(--mono); font-size: 11.5px; background: #f1f3f6; padding: 1px 4px; border-radius: 3px; }
+textarea.mono { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; font-weight: 400; }
+table.points input { width: 100%; }
+table.points td:first-child { width: 28px; }
+.letterhead-thumbs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.letterhead-thumbs img { max-width: 420px; width: 100%; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+@media (max-width: 1000px) { .grid-side { grid-template-columns: 1fr; } }
