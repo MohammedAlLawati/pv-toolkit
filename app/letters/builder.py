@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,18 +31,44 @@ PLACEHOLDERS = {
     "Purpose": "What the letter is about",
     "MeterList": "Meter numbers, comma separated",
     "AccountList": "Account numbers, comma separated",
-    "HTCContactName": "HTC contact name",
-    "HTCContactTel": "HTC contact phone",
-    "HTCContactEmail": "HTC contact e-mail",
-    "HTCSignatoryName": "HTC signatory name",
-    "HTCSignatoryTitle": "HTC signatory title",
-    "CompanyName": "HTC company name",
+    "CompanyName": "HTC company name (in the letter's language)",
 }
 BLOCKS = ("details", "points", "enclosures", "signatures", "htc_signature", "client_signature")
 
 NAVY = RGBColor(0x1F, 0x3A, 0x68)
 GREY = RGBColor(0x59, 0x59, 0x59)
 FONT = "Calibri"
+FONT_AR = "Noto Naskh Arabic"    # shipped in assets/fonts so PDFs render the same everywhere
+AR_SIZE_BOOST = 1.5               # Arabic reads smaller than Latin at the same point size
+BLANK = "____________________"   # an empty input, printed so it can be filled by hand
+
+# fixed wording around the template text, per letter language
+LABELS = {
+    "en": {
+        "ref": "Ref:", "date": "Date:", "subject": "Subject:", "company": "Hussam Technology Company L.L.C.",
+        "company_name": "Company name", "cr": "C.R. No.", "signatory": "Authorised signatory",
+        "signatory_id": "Signatory ID No.", "homeowner": "Homeowner", "civil_id": "Civil ID No.",
+        "location": "Premises location", "no": "No.", "meter": "Meter No.", "account": "Account No.",
+        "meter_opt": "Meter No.", "place": "Location / description", "enclosures": "Enclosures:",
+        "faithfully": "Yours faithfully,", "for": "For", "name": "Name", "designation": "Designation",
+        "signature": "Signature", "stamp": "Company stamp", "id": "ID No.",
+        "client_box": "CLIENT CONFIRMATION", "owner_box": "HOMEOWNER CONFIRMATION",
+    },
+    "ar": {
+        "ref": "الرقم المرجعي:", "date": "التاريخ:", "subject": "الموضوع:",
+        "company": "شركة حسام للتقنية ش.م.م", "company_name": "اسم الشركة",
+        "cr": "رقم السجل التجاري", "signatory": "المفوّض بالتوقيع",
+        "signatory_id": "رقم بطاقة المفوّض", "homeowner": "اسم المالك",
+        "civil_id": "الرقم المدني", "location": "موقع المبنى", "no": "م", "meter": "رقم العداد",
+        "account": "رقم الحساب", "meter_opt": "رقم العداد", "place": "الموقع / الوصف",
+        "enclosures": "المرفقات:", "faithfully": "وتفضلوا بقبول فائق الاحترام والتقدير،",
+        "for": "عن", "name": "الاسم", "designation": "المسمى الوظيفي", "signature": "التوقيع",
+        "stamp": "ختم الشركة", "id": "رقم البطاقة", "client_box": "إقرار العميل",
+        "owner_box": "إقرار المالك",
+    },
+}
+
+_RTL: ContextVar[bool] = ContextVar("letter_rtl", default=False)
 
 
 @dataclass
@@ -61,11 +88,16 @@ class LetterData:
     enclosures: list[str] = field(default_factory=list)
     values: dict[str, str] = field(default_factory=dict)
     points: list[SupplyPoint] = field(default_factory=list)
+    language: str = "en"                # en | ar (right to left)
+
+    @property
+    def labels(self) -> dict[str, str]:
+        return LABELS.get(self.language, LABELS["en"])
 
 
 def complete_values(d: LetterData) -> dict[str, str]:
     v = {k: "" for k in PLACEHOLDERS}
-    v["CompanyName"] = "Hussam Technology Company L.L.C."
+    v["CompanyName"] = d.labels["company"]
     v.update({k: (val or "") for k, val in d.values.items()})
     v["MeterList"] = ", ".join(p.meter_no for p in d.points if p.meter_no)
     v["AccountList"] = ", ".join(p.account_no for p in d.points if p.account_no)
@@ -78,7 +110,7 @@ def fill(text: str, values: dict[str, str], missing: set[str] | None = None) -> 
         val = values.get(key, "")
         if not val and missing is not None:
             missing.add(key)
-        return val or "…………"
+        return val or BLANK
     return re.sub(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", sub, text)
 
 
@@ -95,6 +127,27 @@ def _runs(par, text: str, size: float = 10.5, color: RGBColor | None = None, bol
         r.bold = bold or (i % 2 == 1)
         if color is not None:
             r.font.color.rgb = color
+        if _RTL.get():
+            r_pr = r._r.get_or_add_rPr()
+            r_pr.rFonts.set(qn("w:cs"), FONT_AR)
+            for tag, val in (("w:bCs", None if r.bold else "0"),
+                             ("w:szCs", str(int((size + AR_SIZE_BOOST) * 2)))):
+                el = OxmlElement(tag)
+                if val is not None:
+                    el.set(qn("w:val"), val)
+                r_pr.append(el)
+            r_pr.append(OxmlElement("w:rtl"))
+    if _RTL.get():
+        _bidi(par)
+        # Arabic fonts have tall ascenders; a fixed line height keeps the page compact
+        par.paragraph_format.line_spacing = Pt((size + AR_SIZE_BOOST) * 1.5)
+
+
+def _bidi(par) -> None:
+    """Mark a paragraph right to left (once)."""
+    p_pr = par._p.get_or_add_pPr()
+    if p_pr.find(qn("w:bidi")) is None:
+        p_pr.insert(0, OxmlElement("w:bidi"))
 
 
 def _para(doc, text: str = "", *, size: float = 10.5, bold=False, color=None, after: float = 6,
@@ -108,6 +161,8 @@ def _para(doc, text: str = "", *, size: float = 10.5, bold=False, color=None, af
         p.alignment = align
     if text:
         _runs(p, text, size=size, color=color, bold=bold)
+    elif _RTL.get():
+        _bidi(p)
     return p
 
 
@@ -131,6 +186,8 @@ def _shade(cell, hex_fill: str) -> None:
 
 def _borders(table, color: str = "A6A6A6", size: int = 4, inside: bool = True) -> None:
     tbl_pr = table._tbl.tblPr
+    if _RTL.get() and tbl_pr.find(qn("w:bidiVisual")) is None:
+        tbl_pr.append(OxmlElement("w:bidiVisual"))  # columns run right to left
     b = OxmlElement("w:tblBorders")
     edges = ("top", "left", "bottom", "right") + (("insideH", "insideV") if inside else ())
     for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
@@ -175,6 +232,8 @@ def _cell_text(cell, text: str, *, bold=False, size: float = 10, color=None, ali
     if align is not None:
         p.alignment = align
     _runs(p, text, size=size, bold=bold, color=color)
+    if _RTL.get():
+        _bidi(p)
 
 
 def _table(doc, header: list[str] | None, rows: list[list[str]], widths: list[float],
@@ -203,44 +262,50 @@ def _table(doc, header: list[str] | None, rows: list[list[str]], widths: list[fl
 # ---- blocks ------------------------------------------------------------------------------
 
 def _block_details(doc, d: LetterData, v: dict[str, str]) -> None:
-    def val(k):
-        return v.get(k) or "…………"
+    L = d.labels
     if d.audience == "commercial":
-        rows = [["Company name", val("ClientName"), "C.R. No.", val("CRNo")],
-                ["Authorised signatory", val("SignatoryName"), "Signatory ID No.", val("SignatoryID")]]
+        rows = [[L["company_name"], v.get("ClientName", ""), L["cr"], v.get("CRNo", "")],
+                [L["signatory"], v.get("SignatoryName", ""), L["signatory_id"], v.get("SignatoryID", "")]]
     else:
-        rows = [["Homeowner", val("ClientName"), "Civil ID No.", val("CivilID")]]
-    if v.get("Location"):
-        rows.append(["Premises location", v["Location"], "", ""])
-    t = _table(doc, None, rows, [3.8, 5.8, 3.0, 4.0], label_col=True)
-    if v.get("Location"):
-        last = t.rows[-1].cells
-        last[1].merge(last[3])
-        _cell_text(last[1], v["Location"])
+        rows = [[L["homeowner"], v.get("ClientName", ""), L["civil_id"], v.get("CivilID", "")]]
+    rows.append([L["location"], v.get("Location", ""), "", ""])
+    widths = [3.4, 5.4, 3.6, 4.2] if d.language == "ar" else [3.8, 5.8, 3.0, 4.0]
+    t = _table(doc, None, rows, widths, label_col=True)
+    last = t.rows[-1].cells
+    last[1].merge(last[3])
+    _cell_text(last[1], v.get("Location", ""))
 
 
 def _block_points(doc, d: LetterData, v: dict[str, str]) -> None:
-    pts = [p for p in d.points if p.meter_no or p.account_no or p.location] or [SupplyPoint()]
-    cols = [("meter_no", "Meter No."), ("account_no", "Account No."), ("location", "Location / description")]
+    L = d.labels
+    pts = [p for p in d.points if p.meter_no or p.account_no or p.location]
+    cols = [("meter_no", L["meter"]), ("account_no", L["account"]), ("location", L["place"])]
     if d.audience == "residential":
-        cols = [cols[1], cols[0], cols[2]]
-    # drop columns nobody filled in, but always keep the main number column
-    keep = [c for i, c in enumerate(cols) if i == 0 or any(getattr(p, c[0]) for p in pts)]
+        cols = [cols[1], ("meter_no", L["meter_opt"]), cols[2]]
+    if pts:
+        # drop columns nobody filled in, but always keep the main number column
+        keep = [c for i, c in enumerate(cols) if i == 0 or any(getattr(p, c[0]) for p in pts)]
+    else:
+        # nothing entered yet: empty rows to fill by hand
+        keep = cols
+        pts = [SupplyPoint() for _ in range(3 if d.audience == "commercial" else 2)]
     total = 16.6 - 1.2
     widths = [1.2] + [total / len(keep)] * len(keep)
     if len(keep) == 3:
         widths = [1.2, 4.4, 4.4, total - 8.8]
-    rows = [[str(n)] + [getattr(p, k) or "…………" for k, _ in keep] for n, p in enumerate(pts, 1)]
-    t = _table(doc, ["No."] + [h for _, h in keep], rows, widths)
+    rows = [[str(n)] + [getattr(p, k) for k, _ in keep] for n, p in enumerate(pts, 1)]
+    t = _table(doc, [L["no"]] + [h for _, h in keep], rows, widths)
     for row in t.rows:
         row.cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for c in row.cells[1:]:
+            c.paragraphs[0].paragraph_format.line_spacing = Pt(15)  # room to write by hand
 
 
 def _enclosure_list(target, d: LetterData, v: dict[str, str], size: float = 10) -> None:
     items = [e for e in d.enclosures if e.strip()]
     if not items:
         return
-    _para(target, "Enclosures:", bold=True, after=1, size=size)
+    _para(target, d.labels["enclosures"], bold=True, after=1, size=size)
     for n, e in enumerate(items, 1):
         p = _para(target, f"{n}.  {fill(e, v)}", after=0, size=size)
         p.paragraph_format.left_indent = Cm(0.3)
@@ -252,14 +317,14 @@ def _block_enclosures(doc, d: LetterData, v: dict[str, str]) -> None:
         _gap(doc, 8)
 
 
-def _htc_signoff(target, v: dict[str, str]) -> None:
-    """HTC's sign-off, into the document or a table cell."""
-    _para(target, "Yours faithfully,", after=2)
-    _para(target, f"For **{v.get('CompanyName')}**", after=30)
-    _para(target, "_________________________", after=1, color=GREY)
-    _para(target, v.get("HTCSignatoryName") or "…………", bold=True, after=0)
-    if v.get("HTCSignatoryTitle"):
-        _para(target, v["HTCSignatoryTitle"], after=0, color=GREY, size=9.5)
+def _htc_signoff(target, d: LetterData, v: dict[str, str]) -> None:
+    """HTC's sign-off, into the document or a table cell. Who signs is left blank."""
+    L = d.labels
+    _para(target, L["faithfully"], after=2)
+    _para(target, f"{L['for']} **{v.get('CompanyName')}**", after=10)
+    for label in ("name", "designation", "signature"):
+        _para(target, f"**{L[label]}:**  {BLANK}", after=6, size=9.5)
+    _para(target, f"**{L['stamp']}:**", after=0, size=9.5)
 
 
 def _box_borders(cell, color: str = "1F3A68", size: int = 8) -> None:
@@ -283,28 +348,29 @@ def _keep_row(table) -> None:
 
 def _confirmation(cell, d: LetterData, v: dict[str, str]) -> None:
     """Fill a table cell with the client's confirmation and signature lines."""
-    who = "CLIENT CONFIRMATION" if d.audience == "commercial" else "HOMEOWNER CONFIRMATION"
+    L = d.labels
+    who = L["client_box"] if d.audience == "commercial" else L["owner_box"]
     _box_borders(cell)
     _cell_text(cell, who, bold=True, size=9.5, color=NAVY)
     p = cell.add_paragraph()
     p.paragraph_format.space_after = Pt(5)
     _runs(p, fill(d.confirmation, v), size=9.5)
     if d.audience == "commercial":
-        lines = [("Authorised signatory", v.get("SignatoryName")), ("ID No.", v.get("SignatoryID")),
-                 ("Signature", ""), ("Date", ""), ("Company stamp", None)]
+        lines = [(L["signatory"], v.get("SignatoryName")), (L["id"], v.get("SignatoryID")),
+                 (L["signature"], ""), (L["date"].rstrip(":"), ""), (L["stamp"], None)]
     else:
-        lines = [("Homeowner", v.get("ClientName")), ("Civil ID No.", v.get("CivilID")),
-                 ("Signature", ""), ("Date", "")]
+        lines = [(L["homeowner"], v.get("ClientName")), (L["civil_id"], v.get("CivilID")),
+                 (L["signature"], ""), (L["date"].rstrip(":"), "")]
     for label, val in lines:
         q = cell.add_paragraph()
-        q.paragraph_format.space_after = Pt(3 if val is not None else 22)
+        q.paragraph_format.space_after = Pt(5 if val is not None else 22)
         _runs(q, f"{label}:  ", size=9.5, bold=True)
         if val is not None:
-            _runs(q, val or "______________________", size=9.5, color=None if val else GREY)
+            _runs(q, val or BLANK, size=9.5)
 
 
 def _block_htc_signature(doc, d: LetterData, v: dict[str, str]) -> None:
-    _htc_signoff(doc, v)
+    _htc_signoff(doc, d, v)
     _gap(doc, 8)
 
 
@@ -313,6 +379,7 @@ def _block_client_signature(doc, d: LetterData, v: dict[str, str]) -> None:
         return
     t = doc.add_table(rows=1, cols=1)
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _borders(t, color="FFFFFF", size=0, inside=False)
     _widths(t, [16.6])
     _confirmation(t.rows[0].cells[0], d, v)
     _keep_row(t)
@@ -324,10 +391,11 @@ def _block_signatures(doc, d: LetterData, v: dict[str, str]) -> None:
         return _block_htc_signature(doc, d, v)
     t = doc.add_table(rows=1, cols=3)
     t.autofit = False
+    _borders(t, color="FFFFFF", size=0, inside=False)
     left, gap, right = t.rows[0].cells
     _widths(t, [7.4, 0.5, 8.7])
     left.paragraphs[0].paragraph_format.space_after = Pt(0)
-    _htc_signoff(left, v)
+    _htc_signoff(left, d, v)
     if "[[enclosures]]" not in d.body:  # enclosures sit under the sign-off unless placed elsewhere
         _gap(left, 14)
         _enclosure_list(left, d, v, size=9)
@@ -391,10 +459,20 @@ def _letterhead(doc, top: bytes | None, bottom: bytes | None) -> None:
 def build_docx(d: LetterData, top: bytes | None = None, bottom: bytes | None = None
                ) -> tuple[bytes, set[str]]:
     """Return the letter as .docx bytes and the placeholders that had no value."""
+    token = _RTL.set(d.language == "ar")
+    try:
+        return _build(d, top, bottom)
+    finally:
+        _RTL.reset(token)
+
+
+def _build(d: LetterData, top: bytes | None, bottom: bytes | None) -> tuple[bytes, set[str]]:
     if top is None and DEFAULT_TOP.exists():
         top = DEFAULT_TOP.read_bytes()
     if bottom is None and DEFAULT_BOTTOM.exists():
         bottom = DEFAULT_BOTTOM.read_bytes()
+    L = d.labels
+    rtl = _RTL.get()
     v = complete_values(d)
     missing: set[str] = set()
     doc = Document()
@@ -402,17 +480,21 @@ def build_docx(d: LetterData, top: bytes | None = None, bottom: bytes | None = N
     normal.font.name = FONT
     normal.font.size = Pt(10.5)
     normal.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
+    normal.element.rPr.rFonts.set(qn("w:cs"), FONT_AR if rtl else FONT)
     _letterhead(doc, top, bottom)
 
-    # reference and date on one line
+    # reference (only when the template numbers its letters) and date on one line
+    end = WD_ALIGN_PARAGRAPH.LEFT if rtl else WD_ALIGN_PARAGRAPH.RIGHT
     t = doc.add_table(rows=1, cols=2)
     t.autofit = False
     _borders(t, color="FFFFFF", size=0, inside=False)
     left, right = t.rows[0].cells
     _widths(t, [8.3, 8.3])
-    _cell_text(left, f"**Ref:** {fill('{{Ref}}', v, missing)}", size=10.5)
-    _cell_text(right, f"**Date:** {fill('{{Date}}', v, missing)}", size=10.5,
-               align=WD_ALIGN_PARAGRAPH.RIGHT)
+    if v.get("Ref"):
+        _cell_text(left, f"**{L['ref']}** {v['Ref']}", size=10.5)
+    elif rtl:
+        _bidi(left.paragraphs[0])
+    _cell_text(right, f"**{L['date']}** {fill('{{Date}}', v, missing)}", size=10.5, align=end)
     _gap(doc, 6)
 
     lines = [ln for ln in fill(d.recipient, v, missing).splitlines() if ln.strip()]
@@ -421,9 +503,8 @@ def build_docx(d: LetterData, top: bytes | None = None, bottom: bytes | None = N
     _gap(doc, 10)
 
     subj = _para(doc, after=8)
-    _runs(subj, "Subject: ", bold=True)
-    r_text = fill(d.subject, v, missing)
-    _runs(subj, r_text, bold=True)
+    _runs(subj, f"{L['subject']} ", bold=True)
+    _runs(subj, fill(d.subject, v, missing), bold=True)
     for r in subj.runs:
         r.underline = True
 
@@ -438,10 +519,9 @@ def build_docx(d: LetterData, top: bytes | None = None, bottom: bytes | None = N
         text = fill(chunk, v, missing)
         if all(ln.lstrip().startswith("- ") for ln in text.splitlines()):
             for ln in text.splitlines():
-                p = _para(doc, ln.lstrip()[2:], after=2)
+                p = _para(doc, "•  " + ln.lstrip()[2:], after=2)
                 p.paragraph_format.left_indent = Cm(0.6)
                 p.paragraph_format.first_line_indent = Cm(-0.4)
-                p.runs[0].text = "•  " + p.runs[0].text
             _gap(doc, 6)
         else:
             _para(doc, " ".join(text.splitlines()), after=7, align=WD_ALIGN_PARAGRAPH.JUSTIFY)

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}{{ letter.ref if letter else 'New letter' }}{% endblock %}
+{% block title %}{{ (letter.ref or letter.title) if letter else 'New letter' }}{% endblock %}
 {% block content %}
 <div class="head">
-  <div><h1>{{ letter.ref if letter else 'New letter' }}</h1><div class="muted">{{ tpl.name }} · {{ audiences[tpl.audience] }}</div></div>
+  <div><h1>{{ (letter.ref or letter.title) if letter else 'New letter' }}</h1><div class="muted">{{ tpl.name }} · {{ audiences[tpl.audience] }}</div></div>
   {% if letter %}<div class="actions">
     <a class="btn" href="/letters/{{ letter.id }}/letter.docx">Download Word</a>
     {% if pdf_ok %}<a class="btn sun" href="/letters/{{ letter.id }}/letter.pdf">Download PDF</a>{% endif %}
@@ -31,17 +31,17 @@
   <input type="hidden" name="project_id" value="{{ project_id or '' }}">
   <h2>Letter</h2>
   <div class="fields">
-    <label>Reference <input name="ref" value="{{ ref }}"></label>
+    {% if tpl.ref_prefix or ref %}<label>Reference <input name="ref" value="{{ ref }}"></label>{% endif %}
     <label>Date <input name="letter_date" type="date" value="{{ letter_date }}"></label>
     {% for key, label in fields %}
       <label class="{{ 'wide' if key in ('Purpose', 'ClientName', 'Location') }}">{{ label }}
-        {% if key == 'Purpose' %}<textarea name="{{ key }}" rows="2">{{ values.get(key, '') }}</textarea>
-        {% else %}<input name="{{ key }}" value="{{ values.get(key, '') }}">{% endif %}</label>
+        {% if key == 'Purpose' %}<textarea dir="auto" name="{{ key }}" rows="2">{{ values.get(key, '') }}</textarea>
+        {% else %}<input dir="auto" name="{{ key }}" value="{{ values.get(key, '') }}">{% endif %}</label>
     {% endfor %}
   </div>
 
   <h2 class="spaced-top">{{ 'Meters' if tpl.audience == 'commercial' else 'Electricity accounts' }}</h2>
-  <p class="small muted">One row per {{ 'meter' if tpl.audience == 'commercial' else 'account' }}. Empty rows are ignored; save to get more empty rows.</p>
+  <p class="small muted">One row per {{ 'meter' if tpl.audience == 'commercial' else 'account' }}. Empty rows are ignored; save to get more empty rows. Anything left blank prints as a line to fill in by hand.</p>
   <table class="points">
     <thead><tr><th>#</th>
       {% if tpl.audience == 'commercial' %}<th>Meter No.</th><th>Account No.</th>{% else %}<th>Account No.</th><th>Meter No. (optional)</th>{% endif %}
@@ -60,7 +60,7 @@
 </form>
 
 {% if letter %}
-<form method="post" action="/letters/{{ letter.id }}/delete" data-confirm="Delete letter {{ letter.ref }}?">
+<form method="post" action="/letters/{{ letter.id }}/delete" data-confirm="Delete this letter?">
   <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn danger small">Delete letter</button>
 </form>
 {% endif %}

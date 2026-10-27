@@ -358,13 +358,14 @@ class LetterTemplate(Base):
     key: Mapped[str] = mapped_column(String(60), default="")   # built-in templates only
     name: Mapped[str] = mapped_column(String(200))
     audience: Mapped[str] = mapped_column(String(20), default="commercial")  # commercial | residential
+    language: Mapped[str] = mapped_column(String(5), default="en")           # en | ar
     recipient: Mapped[str] = mapped_column(Text, default="")
     subject: Mapped[str] = mapped_column(Text, default="")
     body: Mapped[str] = mapped_column(Text, default="")
     confirmation: Mapped[str] = mapped_column(Text, default="")
     enclosures: Mapped[str] = mapped_column(Text, default="")   # one per line
     purpose: Mapped[str] = mapped_column(Text, default="")      # default {{Purpose}}
-    ref_prefix: Mapped[str] = mapped_column(String(60), default="HTC/NEDC")
+    ref_prefix: Mapped[str] = mapped_column(String(60), default="")  # empty: letters aren't numbered
     letterhead_id: Mapped[int | None] = mapped_column(ForeignKey("letterheads.id", ondelete="SET NULL"))
     letterhead: Mapped[Letterhead | None] = relationship()
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(),

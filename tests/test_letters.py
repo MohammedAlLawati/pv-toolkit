@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.db import SessionLocal, init_db
 from app.docgen.render import soffice_available
-from app.letters.builder import LetterData, SupplyPoint, build_docx, trim_blank_rows
+from app.letters.builder import BLANK, LetterData, SupplyPoint, build_docx, trim_blank_rows
 from app.main import app
 from app.models import Client, LetterTemplate, Party, Project, User
 from app.security import hash_password
@@ -72,7 +72,8 @@ def test_builder_fills_values_and_blocks():
     xml = body_xml(docx)
     assert "Acme L.L.C." in xml and "M-1, M-2" in xml and "Copy of C.R." in xml
     assert "{{" not in xml and "[[" not in xml
-    assert {"SignatoryName", "SignatoryID", "Ref", "Date"} <= missing
+    assert {"SignatoryName", "SignatoryID", "Date"} <= missing
+    assert "Ref:" not in xml  # no reference given, so no reference line
     assert "word/header1.xml" in zipfile.ZipFile(io.BytesIO(docx)).namelist()
 
 
@@ -89,23 +90,27 @@ def test_trim_blank_rows():
 def test_builtin_templates_and_letterhead(c):
     page = c.get("/letters")
     assert page.status_code == 200
-    assert "NEDC authorisation: commercial client" in page.text
-    assert "NEDC authorisation: residential client" in page.text
+    assert "NEDC approved capacity request: commercial client" in page.text
+    assert "NEDC approved capacity request: residential client" in page.text
+    assert "NEDC approved capacity request: commercial client (Arabic)" in page.text
     assert "HTC (Hussam Technology Company)" in page.text
     tpl, _, _ = _ids()
     r = c.get(f"/letters/templates/{tpl['nedc_commercial']}/sample.docx")
-    assert r.status_code == 200 and "Sample Trading" in body_xml(r.content)
+    xml = body_xml(r.content)
+    # the blank version: every input is a line to fill in, HTC's C.R. is printed, no names
+    assert r.status_code == 200 and BLANK in xml and "1665626" in xml
+    assert "Ref:" not in xml and "Enclosures" not in xml and "Tougi" not in xml
 
 
 def test_commercial_letter_from_client(c):
     tpl, co, _ = _ids()
     page = c.get(f"/letters/new?template_id={tpl['nedc_commercial']}&client_id={co}")
     assert 'value="Ahmed Al Harthy"' in page.text and 'value="1234567"' in page.text
-    ref = re.search(r'name="ref" value="([^"]+)"', page.text).group(1)
-    assert re.fullmatch(r"HTC/NEDC/\d{4}/\d{3}", ref)
+    assert 'name="ref"' not in page.text  # the NEDC letters carry no reference number
+    assert 'name="Purpose"' not in page.text  # the wording doesn't use {{Purpose}}
     r = c.post("/letters/save", data={
         "csrf_token": csrf(page.text), "template_id": tpl["nedc_commercial"], "client_id": co,
-        "ref": ref, "letter_date": "2026-10-27", "ClientName": "Al Noor Trading L.L.C.",
+        "letter_date": "2026-10-27", "ClientName": "Al Noor Trading L.L.C.",
         "CRNo": "1234567", "SignatoryName": "Ahmed Al Harthy", "SignatoryID": "09876543",
         "Location": "Bausher", "Purpose": "grid connection", "HTCSignatoryName": "Al Muataz Al Tougi",
         "meter_no": ["M-111", "M-222", ""], "account_no": ["A-1", "", ""], "location": ["Shop", "", ""]},
@@ -115,13 +120,13 @@ def test_commercial_letter_from_client(c):
     view = c.get(f"/letters/{lid}")
     assert view.status_code == 200 and 'value="M-222"' in view.text
     xml = body_xml(c.get(f"/letters/{lid}/letter.docx").content)
-    for text in ("Al Noor Trading L.L.C.", "1234567", "Ahmed Al Harthy", "09876543", "M-111, M-222",
-                 "Shop", "27 October 2026", ref, "CLIENT CONFIRMATION"):
+    for text in ("Al Noor Trading L.L.C.", "1234567", "Ahmed Al Harthy", "09876543", "M-111",
+                 "M-222", "Shop", "27 October 2026", "CLIENT CONFIRMATION"):
         assert text in xml, text
-    assert "{{" not in xml
-    # the next letter gets the next number
-    nxt = re.search(r'name="ref" value="([^"]+)"', c.get("/letters/new").text).group(1)
-    assert int(nxt[-3:]) == int(ref[-3:]) + 1
+    # meter numbers only appear in the table, and nobody from HTC is named
+    assert "M-111, M-222" not in xml and "Al Muataz" not in xml
+    assert "approved solar PV capacity" in xml and "design" not in xml
+    assert "{{" not in xml and "Ref:" not in xml
 
 
 def test_residential_letter_from_project(c):
@@ -135,7 +140,7 @@ def test_residential_letter_from_project(c):
         follow_redirects=False)
     lid = int(r.headers["location"].rsplit("/", 1)[1])
     xml = body_xml(c.get(f"/letters/{lid}/letter.docx").content)
-    assert "2200987654, 2200987655" in xml and "HOMEOWNER CONFIRMATION" in xml
+    assert "2200987654" in xml and "2200987655" in xml and "HOMEOWNER CONFIRMATION" in xml
     if soffice_available():
         pdf = c.get(f"/letters/{lid}/letter.pdf")
         assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
@@ -151,11 +156,44 @@ def test_new_template_and_letterhead_upload(c):
         follow_redirects=False)
     tid = int(r.headers["location"].rsplit("/", 1)[1])
     xml = body_xml(c.get(f"/letters/templates/{tid}/sample.docx").content)
-    assert "Permit for Salim Hamed Al Rawahi" in xml and "second point" in xml
-    assert "HTC/MM/" in c.get(f"/letters/new?template_id={tid}").text
+    assert f"Permit for {BLANK}" in xml and "second point" in xml
+    # a template with a prefix numbers its letters
+    page = c.get(f"/letters/new?template_id={tid}")
+    ref = re.search(r'name="ref" value="([^"]+)"', page.text).group(1)
+    assert re.fullmatch(r"HTC/MM/\d{4}/001", ref)
+    c.post("/letters/save", data={"csrf_token": tok, "template_id": tid, "ref": ref,
+                                  "letter_date": "2026-10-27", "ClientName": "X"})
+    nxt = re.search(r'name="ref" value="([^"]+)"', c.get(f"/letters/new?template_id={tid}").text).group(1)
+    assert nxt.endswith("/002")
 
     img = io.BytesIO()
     Image.new("RGB", (1200, 200), (0, 60, 120)).save(img, "PNG")
     r = c.post("/letters/letterheads/save", data={"csrf_token": tok, "name": "GreenOps"},
                files={"top": ("top.png", img.getvalue(), "image/png")}, follow_redirects=False)
     assert r.status_code == 303 and "GreenOps" in c.get("/letters").text
+
+
+def test_arabic_letter_is_right_to_left(c):
+    tpl, _, proj = _ids()
+    page = c.get(f"/letters/new?template_id={tpl['nedc_residential_ar']}&project_id={proj}")
+    r = c.post("/letters/save", data={
+        "csrf_token": csrf(page.text), "template_id": tpl["nedc_residential_ar"], "project_id": proj,
+        "letter_date": "2026-10-27", "ClientName": "سالم الرواحي", "CivilID": "12345678",
+        "account_no": ["2200987654"], "meter_no": [""], "location": [""]}, follow_redirects=False)
+    lid = int(r.headers["location"].rsplit("/", 1)[1])
+    xml = body_xml(c.get(f"/letters/{lid}/letter.docx").content)
+    assert "سالم الرواحي" in xml and "شركة نماء لتوزيع الكهرباء" in xml and "1665626" in xml
+    assert "27/10/2026" in xml and "<w:bidi/>" in xml and "<w:bidiVisual/>" in xml
+
+
+def test_reset_builtin_wording(c):
+    tpl, _, _ = _ids()
+    tid = tpl["nedc_commercial"]
+    tok = csrf(c.get("/letters").text)
+    with SessionLocal() as db:
+        t = db.get(LetterTemplate, tid)
+        t.body = "edited"
+        db.commit()
+    c.post(f"/letters/templates/{tid}/reset", data={"csrf_token": tok})
+    with SessionLocal() as db:
+        assert "1665626" in db.get(LetterTemplate, tid).body

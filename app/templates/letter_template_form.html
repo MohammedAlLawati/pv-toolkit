@@ -5,8 +5,8 @@
   <div><h1>{{ tpl.name if tpl else 'New letter template' }}</h1><div class="muted">The wording of a letter. Values in {{ '{{' }}double braces{{ '}}' }} come from the letter form.</div></div>
   {% if tpl %}<div class="actions">
     <a class="btn" href="/letters/templates/new?copy={{ tpl.id }}">Duplicate</a>
-    <a class="btn" href="/letters/templates/{{ tpl.id }}/sample.docx">Sample Word</a>
-    {% if pdf_ok %}<a class="btn sun" href="/letters/templates/{{ tpl.id }}/sample.pdf">Sample PDF</a>{% endif %}
+    <a class="btn" href="/letters/templates/{{ tpl.id }}/sample.docx">Blank Word</a>
+    {% if pdf_ok %}<a class="btn sun" href="/letters/templates/{{ tpl.id }}/sample.pdf">Blank PDF</a>{% endif %}
     <a class="btn primary" href="/letters/new?template_id={{ tpl.id }}">Write letter</a>
   </div>{% endif %}
 </div>
@@ -18,14 +18,15 @@
     <label class="wide">Template name <input name="name" value="{{ tpl.name if tpl else ((src.name ~ ' (copy)') if src else '') }}" required></label>
     <label>For <select name="audience">{% for k, label in audiences.items() %}<option value="{{ k }}" {{ 'selected' if src and src.audience == k }}>{{ label }}</option>{% endfor %}</select>
       <span class="hint">Decides which client details the letter asks for</span></label>
-    <label>Reference prefix <input name="ref_prefix" value="{{ src.ref_prefix if src else 'HTC/NEDC' }}"><span class="hint">Letters are numbered prefix/year/001</span></label>
+    <label>Language <select name="language">{% for k, label in languages.items() %}<option value="{{ k }}" {{ 'selected' if src and src.language == k }}>{{ label }}</option>{% endfor %}</select></label>
+    <label>Reference prefix <input name="ref_prefix" value="{{ src.ref_prefix if src else '' }}" placeholder="e.g. HTC/NEDC"><span class="hint">Letters are numbered prefix/year/001. Leave empty for no reference.</span></label>
     <label>Letterhead <select name="letterhead_id"><option value="">Default letterhead</option>{% for h in letterheads %}<option value="{{ h.id }}" {{ 'selected' if src and src.letterhead_id == h.id }}>{{ h.name }}</option>{% endfor %}</select></label>
-    <label class="wide">Addressed to <span class="hint">One line each; the second-last line is bold</span><textarea name="recipient" rows="4">{{ src.recipient if src else '' }}</textarea></label>
-    <label class="wide">Subject <input name="subject" value="{{ src.subject if src else '' }}"></label>
-    <label class="wide">Default "what the letter is about" ({{ '{{Purpose}}' }}) <textarea name="purpose" rows="2">{{ src.purpose if src else '' }}</textarea></label>
-    <label class="wide">Body <textarea name="body" rows="22" class="mono">{{ src.body if src else 'Dear Sir / Madam,\n\n\n\n[[signatures]]' }}</textarea></label>
-    <label class="wide">Client confirmation <span class="hint">Shown in the box the client signs. Leave empty for no box.</span><textarea name="confirmation" rows="3">{{ src.confirmation if src else '' }}</textarea></label>
-    <label class="wide">Enclosures <span class="hint">One per line</span><textarea name="enclosures" rows="4">{{ src.enclosures if src else '' }}</textarea></label>
+    <label class="wide">Addressed to <span class="hint">One line each; the second-last line is bold</span><textarea dir="auto" name="recipient" rows="4">{{ src.recipient if src else '' }}</textarea></label>
+    <label class="wide">Subject <input dir="auto" name="subject" value="{{ src.subject if src else '' }}"></label>
+    <label class="wide">Default "what the letter is about" ({{ '{{Purpose}}' }}) <textarea dir="auto" name="purpose" rows="2">{{ src.purpose if src else '' }}</textarea></label>
+    <label class="wide">Body <textarea name="body" rows="22" class="mono" dir="auto">{{ src.body if src else 'Dear Sir / Madam,\n\n\n\n[[signatures]]' }}</textarea></label>
+    <label class="wide">Client confirmation <span class="hint">Shown in the box the client signs. Leave empty for no box.</span><textarea dir="auto" name="confirmation" rows="3">{{ src.confirmation if src else '' }}</textarea></label>
+    <label class="wide">Enclosures <span class="hint">One per line</span><textarea dir="auto" name="enclosures" rows="4">{{ src.enclosures if src else '' }}</textarea></label>
   </div>
   <div class="bar"><a class="btn" href="/letters">Cancel</a><button class="btn primary">Save template</button></div>
 </form>
@@ -51,6 +52,11 @@
   </dl>
 </div>
 </div>
+{% if tpl and tpl.key %}
+<form method="post" action="/letters/templates/{{ tpl.id }}/reset" data-confirm="Replace this template's wording with the built-in version?" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn small">Reset to built-in wording</button>
+</form>
+{% endif %}
 {% if tpl %}
 <form method="post" action="/letters/templates/{{ tpl.id }}/delete" data-confirm="Delete the template {{ tpl.name }}?">
   <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn danger small">Delete template</button>

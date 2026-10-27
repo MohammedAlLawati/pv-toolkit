@@ -24,6 +24,7 @@ router = APIRouter(dependencies=[Depends(sec.current_user), Depends(sec.check_cs
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 AUDIENCES = {"commercial": "Commercial (company with C.R.)", "residential": "Residential (homeowner)"}
+LANGUAGES = {"en": "English", "ar": "Arabic (right to left)"}
 TEMPLATE_FIELDS = ("name", "recipient", "subject", "body", "confirmation", "enclosures",
                    "purpose", "ref_prefix")
 MAX_POINTS = 20
@@ -49,7 +50,7 @@ def letters(request: Request, db: Session = Depends(get_db)):
                   letters=db.scalars(select(Letter).order_by(Letter.id.desc()).limit(100)).all(),
                   templates=db.scalars(select(LetterTemplate).order_by(LetterTemplate.name)).all(),
                   letterheads=db.scalars(select(Letterhead).order_by(Letterhead.name)).all(),
-                  audiences=AUDIENCES)
+                  audiences=AUDIENCES, languages=LANGUAGES)
 
 
 # ---- templates -------------------------------------------------------------------------
@@ -58,7 +59,7 @@ def letters(request: Request, db: Session = Depends(get_db)):
 def template_new(request: Request, copy: int | None = None, db: Session = Depends(get_db)):
     src = db.get(LetterTemplate, copy) if copy else None
     return render(request, "letter_template_form.html", nav="letters", tpl=None, src=src,
-                  audiences=AUDIENCES, placeholders=PLACEHOLDERS, blocks=BLOCKS,
+                  audiences=AUDIENCES, languages=LANGUAGES, placeholders=PLACEHOLDERS, blocks=BLOCKS,
                   letterheads=db.scalars(select(Letterhead).order_by(Letterhead.name)).all())
 
 
@@ -66,7 +67,7 @@ def template_new(request: Request, copy: int | None = None, db: Session = Depend
 def template_edit(tid: int, request: Request, db: Session = Depends(get_db)):
     tpl = db.get(LetterTemplate, tid) or _404()
     return render(request, "letter_template_form.html", nav="letters", tpl=tpl, src=tpl,
-                  audiences=AUDIENCES, placeholders=PLACEHOLDERS, blocks=BLOCKS,
+                  audiences=AUDIENCES, languages=LANGUAGES, placeholders=PLACEHOLDERS, blocks=BLOCKS,
                   letterheads=db.scalars(select(Letterhead).order_by(Letterhead.name)).all(),
                   pdf_ok=soffice_available())
 
@@ -84,11 +85,21 @@ async def template_save(request: Request, db: Session = Depends(get_db)):
     for k in TEMPLATE_FIELDS:
         setattr(tpl, k, str(form.get(k, "") or "").replace("\r\n", "\n").strip())
     tpl.audience = s(form, "audience") if s(form, "audience") in AUDIENCES else "commercial"
+    tpl.language = s(form, "language") if s(form, "language") in LANGUAGES else "en"
     tpl.letterhead_id = fk(form, "letterhead_id")
     db.add(tpl)
     db.commit()
     flash(request, f"Saved template {tpl.name}.")
     return redirect(f"/letters/templates/{tpl.id}")
+
+
+@router.post("/letters/templates/{tid}/reset")
+def template_reset(tid: int, request: Request, db: Session = Depends(get_db)):
+    tpl = db.get(LetterTemplate, tid) or _404()
+    if ls.reset_to_builtin(tpl):
+        db.commit()
+        flash(request, f"Put {tpl.name} back to the built-in wording.")
+    return redirect(f"/letters/templates/{tid}")
 
 
 @router.post("/letters/templates/{tid}/delete")
@@ -194,7 +205,7 @@ def letterhead_delete(hid: int, request: Request, db: Session = Depends(get_db))
 
 def _form_ctx(db: Session, tpl: LetterTemplate) -> dict:
     return dict(
-        tpl=tpl, fields=ls.form_fields(tpl.audience), audiences=AUDIENCES,
+        tpl=tpl, fields=ls.form_fields(tpl), audiences=AUDIENCES,
         templates=db.scalars(select(LetterTemplate).order_by(LetterTemplate.name)).all(),
         clients=db.scalars(select(Client).order_by(Client.name)).all(),
         projects=db.scalars(select(Project).order_by(Project.name)).all(),
@@ -234,8 +245,8 @@ def letter_edit(lid: int, request: Request, db: Session = Depends(get_db)):
         flash(request, "This letter's template was deleted, so it can't be edited.", "error")
         return redirect("/letters")
     _docx, missing = ls.render_letter(db, letter)
-    labels = dict(ls.form_fields(tpl.audience)) | {"MeterList": "meter numbers",
-                                                   "AccountList": "account numbers", "Ref": "reference"}
+    labels = dict(ls.form_fields(tpl)) | {"MeterList": "meter numbers",
+                                                   "AccountList": "account numbers", "Date": "date"}
     return render(request, "letter_form.html", nav="letters", letter=letter, values=letter.values,
                   missing=sorted(labels.get(k, k) for k in missing),
                   rows=_rows(letter.points, tpl.audience), ref=letter.ref,
@@ -259,7 +270,7 @@ async def letter_save(request: Request, db: Session = Depends(get_db)):
         letter.letter_date = date.fromisoformat(s(form, "letter_date"))
     except ValueError:
         letter.letter_date = date.today()
-    keys = {k for k, _ in ls.form_fields(tpl.audience)}
+    keys = {k for k, _ in ls.form_fields(tpl)}
     letter.values_json = ls.dumps({k: s(form, k) for k in sorted(keys)})
     meters, accounts, places = (form.getlist(k) for k in ("meter_no", "account_no", "location"))
     points = []
@@ -270,7 +281,7 @@ async def letter_save(request: Request, db: Session = Depends(get_db)):
     letter.points_json = ls.dumps(points[:MAX_POINTS])
     db.add(letter)
     db.commit()
-    flash(request, f"Saved letter {letter.ref}.")
+    flash(request, f"Saved the letter for {letter.title}.")
     return redirect(f"/letters/{letter.id}")
 
 
@@ -282,7 +293,7 @@ async def letter_file(lid: int, ext: str, db: Session = Depends(get_db)):
     data, _missing = await run_in_threadpool(ls.render_letter, db, letter)
     if ext == "pdf":
         data = await run_in_threadpool(docx_to_pdf, data)
-    return _file(data, f"{letter.ref} {letter.title}", ext)
+    return _file(data, f"{letter.ref} {letter.title}".strip(), ext)
 
 
 @router.post("/letters/{lid}/delete")
@@ -290,5 +301,5 @@ def letter_delete(lid: int, request: Request, db: Session = Depends(get_db)):
     letter = db.get(Letter, lid) or _404()
     db.delete(letter)
     db.commit()
-    flash(request, f"Deleted letter {letter.ref}.")
+    flash(request, f"Deleted the letter for {letter.title}.")
     return redirect("/letters")

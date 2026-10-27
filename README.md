@@ -113,14 +113,21 @@ blank in the generated document, and the app logs the name.
 ## Letters
 
 - **Letters** in the menu: letters on the HTC letterhead, filled from editable templates.
-- **Built in:** two NEDC letters where HTC acts on the client's behalf:
+- **Built in:** four NEDC letters (English and Arabic) in which HTC (C.R. 1665626) asks NEDC,
+  on the client's behalf, for the approved solar PV capacity at the premises:
   - **commercial:** company name, C.R., authorised signatory and ID, one or more meters
   - **residential:** homeowner, civil ID, one or two electricity accounts
+  - No reference number, no enclosures and no HTC person named. HTC's name, designation,
+    signature and stamp are blank lines to fill in by hand, as are any inputs left empty.
 - **New letter:** pick a template, then a client or project to fill the details in. Letters are
-  numbered `HTC/NEDC/<year>/001` and kept, so they can be downloaded again as Word or PDF.
-- **Templates:** add or duplicate one and edit its wording. `{{Values}}` come from the letter
-  form, and `[[blocks]]` insert the details table, the meters table and the signature boxes.
-  The editor lists them all. "Sample PDF" shows a template filled with made-up data.
+  kept, so they can be downloaded again as Word or PDF. A template with a reference prefix
+  numbers its letters `<prefix>/<year>/001`.
+- **Templates:** add or duplicate one and edit its wording, in English or Arabic (right to
+  left). `{{Values}}` come from the letter form, and `[[blocks]]` insert the details table, the
+  meters table and the signature boxes. The editor lists them all. "Blank PDF" shows a
+  template with every input empty. Built-in templates have "Reset to built-in wording".
+- **Arabic letters** use Noto Naskh Arabic (bundled in `app/letters/assets/fonts`, installed in the
+  Docker image). To edit them in Word with the same font, install those two .ttf files on the PC.
 - **Letterheads:** header and footer images. The HTC one is built in, and you can upload others.
 - Clients now have an optional authorised signatory name and ID for companies.
 - Code: `app/letters/` (`builder.py` builds the .docx, `defaults.py` holds the built-in wording,
