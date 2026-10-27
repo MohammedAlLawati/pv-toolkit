@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ letter.ref if letter else 'New letter' }}{% endblock %}
+{% block content %}
+<div class="head">
+  <div><h1>{{ letter.ref if letter else 'New letter' }}</h1><div class="muted">{{ tpl.name }} · {{ audiences[tpl.audience] }}</div></div>
+  {% if letter %}<div class="actions">
+    <a class="btn" href="/letters/{{ letter.id }}/letter.docx">Download Word</a>
+    {% if pdf_ok %}<a class="btn sun" href="/letters/{{ letter.id }}/letter.pdf">Download PDF</a>{% endif %}
+  </div>{% endif %}
+</div>
+
+{% if missing %}<div class="flash warn">Still blank in the letter (printed as dotted lines): {{ missing|join(', ') }}</div>{% endif %}
+
+{% if not letter %}
+<form method="get" action="/letters/new" class="panel">
+  <h2>Start from</h2>
+  <div class="fields">
+    <label>Template <select name="template_id">{% for t in templates %}<option value="{{ t.id }}" {{ 'selected' if t.id == tpl.id }}>{{ t.name }}</option>{% endfor %}</select></label>
+    <label>Client <select name="client_id"><option value="">—</option>{% for c in clients %}<option value="{{ c.id }}" {{ 'selected' if c.id == client_id }}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label>Project <span class="hint">Brings in its account number</span><select name="project_id"><option value="">—</option>{% for p in projects %}<option value="{{ p.id }}" {{ 'selected' if p.id == project_id }}>{{ p.name }} ({{ p.client.name }})</option>{% endfor %}</select></label>
+  </div>
+  <div class="bar"><button class="btn">Fill in from these</button></div>
+</form>
+{% endif %}
+
+<form method="post" action="/letters/save" class="panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="id" value="{{ letter.id if letter else '' }}">
+  <input type="hidden" name="template_id" value="{{ tpl.id }}">
+  <input type="hidden" name="client_id" value="{{ client_id or '' }}">
+  <input type="hidden" name="project_id" value="{{ project_id or '' }}">
+  <h2>Letter</h2>
+  <div class="fields">
+    <label>Reference <input name="ref" value="{{ ref }}"></label>
+    <label>Date <input name="letter_date" type="date" value="{{ letter_date }}"></label>
+    {% for key, label in fields %}
+      <label class="{{ 'wide' if key in ('Purpose', 'ClientName', 'Location') }}">{{ label }}
+        {% if key == 'Purpose' %}<textarea name="{{ key }}" rows="2">{{ values.get(key, '') }}</textarea>
+        {% else %}<input name="{{ key }}" value="{{ values.get(key, '') }}">{% endif %}</label>
+    {% endfor %}
+  </div>
+
+  <h2 class="spaced-top">{{ 'Meters' if tpl.audience == 'commercial' else 'Electricity accounts' }}</h2>
+  <p class="small muted">One row per {{ 'meter' if tpl.audience == 'commercial' else 'account' }}. Empty rows are ignored; save to get more empty rows.</p>
+  <table class="points">
+    <thead><tr><th>#</th>
+      {% if tpl.audience == 'commercial' %}<th>Meter No.</th><th>Account No.</th>{% else %}<th>Account No.</th><th>Meter No. (optional)</th>{% endif %}
+      <th>Location / description</th></tr></thead>
+    <tbody>
+    {% for r in rows %}<tr><td class="muted">{{ loop.index }}</td>
+      {% if tpl.audience == 'commercial' %}
+      <td><input name="meter_no" value="{{ r.get('meter_no', '') }}"></td><td><input name="account_no" value="{{ r.get('account_no', '') }}"></td>
+      {% else %}
+      <td><input name="account_no" value="{{ r.get('account_no', '') }}"></td><td><input name="meter_no" value="{{ r.get('meter_no', '') }}"></td>
+      {% endif %}
+      <td><input name="location" value="{{ r.get('location', '') }}"></td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <div class="bar"><a class="btn" href="/letters">Cancel</a><button class="btn primary">Save letter</button></div>
+</form>
+
+{% if letter %}
+<form method="post" action="/letters/{{ letter.id }}/delete" data-confirm="Delete letter {{ letter.ref }}?">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}"><button class="btn danger small">Delete letter</button>
+</form>
+{% endif %}
+{% endblock %}

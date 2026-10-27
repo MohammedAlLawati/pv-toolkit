@@ -11,7 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import config
 from .db import init_db
-from .routes import auth, library, projects, records, sizing
+from .routes import auth, letters, library, projects, records, sizing
 from .security import CSRFError, LoginRequired
 from .web import redirect, render
 
@@ -58,6 +58,7 @@ app.include_router(records.router)
 app.include_router(library.router)
 app.include_router(projects.router)
 app.include_router(sizing.router)
+app.include_router(letters.router)
 
 
 @app.exception_handler(LoginRequired)

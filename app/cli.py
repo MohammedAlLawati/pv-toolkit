@@ -116,7 +116,9 @@ def seed() -> None:
         from .seed import import_jinko_modules, import_sungrow_mena
         added, updated = import_sungrow_mena(db)
         import_jinko_modules(db)
-    print(f"Seeded contractor, consultant, the Jinko modules and the Sungrow MENA inverter range "
+        from .letters.service import ensure_defaults
+        ensure_defaults(db)
+    print(f"Seeded contractor, consultant, the HTC letterhead and NEDC letters, the Jinko modules and the Sungrow MENA inverter range "
           f"({added} added, {updated} refreshed).")
 
 

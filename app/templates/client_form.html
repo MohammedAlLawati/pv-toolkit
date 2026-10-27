@@ -3,7 +3,7 @@
 {% block content %}
 <div class="head">
   <div><h1>{{ client.name if client else 'New client' }}</h1><div class="muted">These details appear on the NAMA forms and the execution agreement.</div></div>
-  {% if client %}<div class="actions"><a class="btn primary" href="/projects/new?client_id={{ client.id }}">New project for this client</a></div>{% endif %}
+  {% if client %}<div class="actions"><a class="btn" href="/letters/new?client_id={{ client.id }}">Write a letter</a><a class="btn primary" href="/projects/new?client_id={{ client.id }}">New project for this client</a></div>{% endif %}
 </div>
 <form method="post" action="/clients/save" class="panel">
   <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
@@ -17,6 +17,8 @@
     <label>Governorate <input name="governorate" value="{{ client.governorate if client else '' }}" list="governorates"></label>
     <label>Wilayat <input name="wilaya" value="{{ client.wilaya if client else '' }}"></label>
     <label>Village / area <input name="village" value="{{ client.village if client else '' }}"></label>
+    <label>Authorised signatory <span class="hint">Companies only, for letters</span><input name="signatory_name" value="{{ client.signatory_name if client else '' }}"></label>
+    <label>Signatory's ID number <input name="signatory_id" value="{{ client.signatory_id if client else '' }}"></label>
     <label class="wide">Notes <textarea name="notes">{{ client.notes if client else '' }}</textarea></label>
   </div>
   <datalist id="governorates">
