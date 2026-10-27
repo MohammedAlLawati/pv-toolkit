@@ -126,6 +126,8 @@ blank in the generated document, and the app logs the name.
   left). `{{Values}}` come from the letter form, and `[[blocks]]` insert the details table, the
   meters table and the signature boxes. The editor lists them all. "Blank PDF" shows a
   template with every input empty. Built-in templates have "Reset to built-in wording".
+- **Arabic letters** use Noto Naskh Arabic (bundled in `app/letters/assets/fonts`, installed in the
+  Docker image). To edit them in Word with the same font, install those two .ttf files on the PC.
 - **Letterheads:** header and footer images. The HTC one is built in, and you can upload others.
 - Clients now have an optional authorised signatory name and ID for companies.
 - Code: `app/letters/` (`builder.py` builds the .docx, `defaults.py` holds the built-in wording,

@@ -38,7 +38,8 @@ BLOCKS = ("details", "points", "enclosures", "signatures", "htc_signature", "cli
 NAVY = RGBColor(0x1F, 0x3A, 0x68)
 GREY = RGBColor(0x59, 0x59, 0x59)
 FONT = "Calibri"
-FONT_AR = "Arial"
+FONT_AR = "Noto Naskh Arabic"    # shipped in assets/fonts so PDFs render the same everywhere
+AR_SIZE_BOOST = 1.5               # Arabic reads smaller than Latin at the same point size
 BLANK = "____________________"   # an empty input, printed so it can be filled by hand
 
 # fixed wording around the template text, per letter language
@@ -129,7 +130,8 @@ def _runs(par, text: str, size: float = 10.5, color: RGBColor | None = None, bol
         if _RTL.get():
             r_pr = r._r.get_or_add_rPr()
             r_pr.rFonts.set(qn("w:cs"), FONT_AR)
-            for tag, val in (("w:bCs", None if r.bold else "0"), ("w:szCs", str(int(size * 2)))):
+            for tag, val in (("w:bCs", None if r.bold else "0"),
+                             ("w:szCs", str(int((size + AR_SIZE_BOOST) * 2)))):
                 el = OxmlElement(tag)
                 if val is not None:
                     el.set(qn("w:val"), val)
@@ -137,6 +139,8 @@ def _runs(par, text: str, size: float = 10.5, color: RGBColor | None = None, bol
             r_pr.append(OxmlElement("w:rtl"))
     if _RTL.get():
         _bidi(par)
+        # Arabic fonts have tall ascenders; a fixed line height keeps the page compact
+        par.paragraph_format.line_spacing = Pt((size + AR_SIZE_BOOST) * 1.5)
 
 
 def _bidi(par) -> None:

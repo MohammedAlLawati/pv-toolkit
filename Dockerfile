@@ -15,6 +15,10 @@ WORKDIR /srv/app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+# Arabic letters use Noto Naskh Arabic, shipped with the app
+RUN mkdir -p /usr/local/share/fonts/pvtoolkit \
+ && cp app/letters/assets/fonts/*.ttf /usr/local/share/fonts/pvtoolkit/ \
+ && (fc-cache -f || true)
 COPY tools ./tools
 COPY source_templates ./source_templates
 
