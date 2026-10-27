@@ -27,7 +27,7 @@ DEFAULT_PURPOSE = ("application, design approval and grid connection of a roofto
 
 COMMERCIAL_BODY = f"""Dear Sir / Madam,
 
-Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client, **{{{{ClientName}}}}** (C.R. No. {{{{CRNo}}}}), regarding the {{{{Purpose}}}} at the premises supplied through the meter(s) listed below.
+Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client detailed below, regarding the {{{{Purpose}}}} at the premises supplied through the meter(s) listed below.
 
 Our client has appointed HTC as its contractor and authorised representative for this matter. We therefore kindly request that NEDC accepts HTC's submissions and deals with HTC on all correspondence, site inspections and follow-ups relating to the following:
 
@@ -39,12 +39,12 @@ We thank you for your cooperation.
 
 [[signatures]]"""
 
-COMMERCIAL_CONFIRMATION = ("We, {{ClientName}}, confirm that Hussam Technology Company L.L.C. is "
+COMMERCIAL_CONFIRMATION = ("We, the undersigned, confirm that Hussam Technology Company L.L.C. is "
                            "authorised to act on our behalf with NEDC for the meter(s) listed above.")
 
 RESIDENTIAL_BODY = f"""Dear Sir / Madam,
 
-Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client, **{{{{ClientName}}}}**, the owner of the residence detailed below, regarding the {{{{Purpose}}}} at the premises.
+Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client, the owner of the residence detailed below, regarding the {{{{Purpose}}}} at the premises.
 
 The homeowner has appointed HTC as the contractor and authorised representative for this matter. We therefore kindly request that NEDC accepts HTC's submissions and deals with HTC on all correspondence, site inspections and follow-ups relating to the following:
 
@@ -56,7 +56,7 @@ We thank you for your cooperation.
 
 [[signatures]]"""
 
-RESIDENTIAL_CONFIRMATION = ("I, {{ClientName}}, confirm that Hussam Technology Company L.L.C. is "
+RESIDENTIAL_CONFIRMATION = ("I, the undersigned, confirm that Hussam Technology Company L.L.C. is "
                             "authorised to act on my behalf with NEDC for the account(s) listed above.")
 
 # ---- Arabic --------------------------------------------------------------------------------
@@ -70,7 +70,7 @@ DEFAULT_PURPOSE_AR = ("تقديم طلب واعتماد التصميم وربط 
 
 COMMERCIAL_BODY_AR = f"""تحية طيبة وبعد،
 
-تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا **{{{{ClientName}}}}** (سجل تجاري رقم {{{{CRNo}}}})، بخصوص {{{{Purpose}}}}، وذلك للمبنى المغذّى بالعداد/العدادات الموضحة أدناه.
+تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا الموضحة بياناته أدناه، بخصوص {{{{Purpose}}}}، وذلك للمبنى المغذّى بالعداد/العدادات الموضحة أدناه.
 
 وقد قام عميلنا بتعيين شركة حسام للتقنية مقاولاً وممثلاً معتمداً له في هذا الشأن، لذا نرجو التكرم بقبول طلبات الشركة والتعامل معها في جميع المراسلات والزيارات الميدانية والمتابعات المتعلقة بما يلي:
 
@@ -82,13 +82,13 @@ COMMERCIAL_BODY_AR = f"""تحية طيبة وبعد،
 
 [[signatures]]"""
 
-COMMERCIAL_CONFIRMATION_AR = ("نحن، {{ClientName}}، نؤكد تفويض شركة حسام للتقنية ش.م.م بالتعامل "
+COMMERCIAL_CONFIRMATION_AR = ("نحن الموقعين أدناه نؤكد تفويض شركة حسام للتقنية ش.م.م بالتعامل "
                               "نيابةً عنا مع شركة نماء لتوزيع الكهرباء بخصوص العداد/العدادات "
                               "الموضحة أعلاه.")
 
 RESIDENTIAL_BODY_AR = f"""تحية طيبة وبعد،
 
-تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا **{{{{ClientName}}}}**، مالك المسكن الموضحة بياناته أدناه، بخصوص {{{{Purpose}}}}.
+تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا مالك المسكن الموضحة بياناته أدناه، بخصوص {{{{Purpose}}}}.
 
 وقد قام المالك بتعيين شركة حسام للتقنية مقاولاً وممثلاً معتمداً له في هذا الشأن، لذا نرجو التكرم بقبول طلبات الشركة والتعامل معها في جميع المراسلات والزيارات الميدانية والمتابعات المتعلقة بما يلي:
 
@@ -100,7 +100,7 @@ RESIDENTIAL_BODY_AR = f"""تحية طيبة وبعد،
 
 [[signatures]]"""
 
-RESIDENTIAL_CONFIRMATION_AR = ("أنا، {{ClientName}}، أؤكد تفويض شركة حسام للتقنية ش.م.م بالتعامل "
+RESIDENTIAL_CONFIRMATION_AR = ("أنا الموقّع أدناه أؤكد تفويض شركة حسام للتقنية ش.م.م بالتعامل "
                                "نيابةً عني مع شركة نماء لتوزيع الكهرباء بخصوص الحساب/الحسابات "
                                "الموضحة أعلاه.")
 
@@ -110,7 +110,7 @@ DEFAULT_TEMPLATES = [
         "name": "NEDC authorisation: commercial client",
         "audience": "commercial",
         "recipient": NEDC_RECIPIENT,
-        "subject": "Authorisation for HTC to act on behalf of {{ClientName}}",
+        "subject": "Authorisation for HTC to act on behalf of our client",
         "body": COMMERCIAL_BODY,
         "confirmation": COMMERCIAL_CONFIRMATION,
         "purpose": DEFAULT_PURPOSE,
@@ -120,7 +120,7 @@ DEFAULT_TEMPLATES = [
         "name": "NEDC authorisation: residential client",
         "audience": "residential",
         "recipient": NEDC_RECIPIENT,
-        "subject": "Authorisation for HTC to act on behalf of {{ClientName}}",
+        "subject": "Authorisation for HTC to act on behalf of our client",
         "body": RESIDENTIAL_BODY,
         "confirmation": RESIDENTIAL_CONFIRMATION,
         "purpose": DEFAULT_PURPOSE,
@@ -130,7 +130,7 @@ DEFAULT_TEMPLATES = [
         "name": "NEDC authorisation: commercial client (Arabic)",
         "audience": "commercial",
         "recipient": NEDC_RECIPIENT_AR,
-        "subject": "تفويض شركة حسام للتقنية بالتعامل نيابةً عن {{ClientName}}",
+        "subject": "تفويض شركة حسام للتقنية بالتعامل نيابةً عن عميلنا",
         "body": COMMERCIAL_BODY_AR,
         "confirmation": COMMERCIAL_CONFIRMATION_AR,
         "purpose": DEFAULT_PURPOSE_AR,
@@ -140,7 +140,7 @@ DEFAULT_TEMPLATES = [
         "name": "NEDC authorisation: residential client (Arabic)",
         "audience": "residential",
         "recipient": NEDC_RECIPIENT_AR,
-        "subject": "تفويض شركة حسام للتقنية بالتعامل نيابةً عن {{ClientName}}",
+        "subject": "تفويض شركة حسام للتقنية بالتعامل نيابةً عن عميلنا",
         "body": RESIDENTIAL_BODY_AR,
         "confirmation": RESIDENTIAL_CONFIRMATION_AR,
         "purpose": DEFAULT_PURPOSE_AR,
