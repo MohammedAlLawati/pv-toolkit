@@ -113,18 +113,19 @@ def test_commercial_letter_from_client(c):
         "letter_date": "2026-10-27", "ClientName": "Al Noor Trading L.L.C.",
         "CRNo": "1234567", "SignatoryName": "Ahmed Al Harthy", "SignatoryID": "09876543",
         "Location": "Bausher", "Purpose": "grid connection", "HTCSignatoryName": "Al Muataz Al Tougi",
-        "meter_no": ["M-111", "M-222", ""], "account_no": ["A-1", "", ""], "location": ["Shop", "", ""]},
+        "account_no": ["A-111", "A-222", ""], "location": ["Shop", "", ""]},
         follow_redirects=False)
     assert r.status_code == 303
     lid = int(r.headers["location"].rsplit("/", 1)[1])
     view = c.get(f"/letters/{lid}")
-    assert view.status_code == 200 and 'value="M-222"' in view.text
+    assert view.status_code == 200 and 'value="A-222"' in view.text
     xml = body_xml(c.get(f"/letters/{lid}/letter.docx").content)
-    for text in ("Al Noor Trading L.L.C.", "1234567", "Ahmed Al Harthy", "09876543", "M-111",
-                 "M-222", "Shop", "27 October 2026", "CLIENT CONFIRMATION"):
+    for text in ("Al Noor Trading L.L.C.", "1234567", "Ahmed Al Harthy", "09876543", "A-111",
+                 "A-222", "Shop", "27 October 2026", "CLIENT CONFIRMATION"):
         assert text in xml, text
     # meter numbers only appear in the table, and nobody from HTC is named
-    assert "M-111, M-222" not in xml and "Al Muataz" not in xml
+    # account numbers only appear in the table (no meter column), and nobody from HTC is named
+    assert "A-111, A-222" not in xml and "Meter No." not in xml and "Al Muataz" not in xml
     assert "approved solar PV capacity" in xml and "design" not in xml
     assert "{{" not in xml and "Ref:" not in xml
 
@@ -136,7 +137,7 @@ def test_residential_letter_from_project(c):
     r = c.post("/letters/save", data={
         "csrf_token": csrf(page.text), "template_id": tpl["nedc_residential"], "project_id": proj,
         "ref": "", "letter_date": "2026-10-27", "ClientName": "Salim Al Rawahi", "CivilID": "12345678",
-        "account_no": ["2200987654", "2200987655"], "meter_no": ["", ""], "location": ["", ""]},
+        "account_no": ["2200987654", "2200987655"], "location": ["", ""]},
         follow_redirects=False)
     lid = int(r.headers["location"].rsplit("/", 1)[1])
     xml = body_xml(c.get(f"/letters/{lid}/letter.docx").content)
@@ -179,7 +180,7 @@ def test_arabic_letter_is_right_to_left(c):
     r = c.post("/letters/save", data={
         "csrf_token": csrf(page.text), "template_id": tpl["nedc_residential_ar"], "project_id": proj,
         "letter_date": "2026-10-27", "ClientName": "سالم الرواحي", "CivilID": "12345678",
-        "account_no": ["2200987654"], "meter_no": [""], "location": [""]}, follow_redirects=False)
+        "account_no": ["2200987654"], "location": [""]}, follow_redirects=False)
     lid = int(r.headers["location"].rsplit("/", 1)[1])
     xml = body_xml(c.get(f"/letters/{lid}/letter.docx").content)
     assert "سالم الرواحي" in xml and "شركة نماء لتوزيع الكهرباء" in xml and "1665626" in xml

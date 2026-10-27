@@ -40,19 +40,13 @@
     {% endfor %}
   </div>
 
-  <h2 class="spaced-top">{{ 'Meters' if tpl.audience == 'commercial' else 'Electricity accounts' }}</h2>
-  <p class="small muted">One row per {{ 'meter' if tpl.audience == 'commercial' else 'account' }}. Empty rows are ignored; save to get more empty rows. Anything left blank prints as a line to fill in by hand.</p>
+  <h2 class="spaced-top">Electricity accounts</h2>
+  <p class="small muted">One row per account. Empty rows are ignored; save to get more empty rows. Anything left blank prints as a line to fill in by hand.</p>
   <table class="points">
-    <thead><tr><th>#</th>
-      {% if tpl.audience == 'commercial' %}<th>Meter No.</th><th>Account No.</th>{% else %}<th>Account No.</th><th>Meter No. (optional)</th>{% endif %}
-      <th>Location / description</th></tr></thead>
+    <thead><tr><th>#</th><th>Account No.</th><th>Location / description</th></tr></thead>
     <tbody>
     {% for r in rows %}<tr><td class="muted">{{ loop.index }}</td>
-      {% if tpl.audience == 'commercial' %}
-      <td><input name="meter_no" value="{{ r.get('meter_no', '') }}"></td><td><input name="account_no" value="{{ r.get('account_no', '') }}"></td>
-      {% else %}
-      <td><input name="account_no" value="{{ r.get('account_no', '') }}"></td><td><input name="meter_no" value="{{ r.get('meter_no', '') }}"></td>
-      {% endif %}
+      <td><input name="account_no" value="{{ r.get('account_no', '') }}"></td>
       <td><input name="location" value="{{ r.get('location', '') }}"></td></tr>{% endfor %}
     </tbody>
   </table>

@@ -97,8 +97,7 @@ def prefill(db: Session, tpl: LetterTemplate, client: Client | None,
         v["Location"] = ", ".join(x for x in (client.village, client.wilaya, client.governorate) if x)
     points = []
     if project and project.account_no:
-        key = "meter_no" if tpl.audience == "commercial" else "account_no"
-        points.append({key: project.account_no})
+        points.append({"account_no": project.account_no})
     return v, points
 
 

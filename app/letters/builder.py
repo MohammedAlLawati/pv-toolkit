@@ -277,24 +277,14 @@ def _block_details(doc, d: LetterData, v: dict[str, str]) -> None:
 
 
 def _block_points(doc, d: LetterData, v: dict[str, str]) -> None:
+    """Electricity accounts: account number and location / description."""
     L = d.labels
-    pts = [p for p in d.points if p.meter_no or p.account_no or p.location]
-    cols = [("meter_no", L["meter"]), ("account_no", L["account"]), ("location", L["place"])]
-    if d.audience == "residential":
-        cols = [cols[1], ("meter_no", L["meter_opt"]), cols[2]]
-    if pts:
-        # drop columns nobody filled in, but always keep the main number column
-        keep = [c for i, c in enumerate(cols) if i == 0 or any(getattr(p, c[0]) for p in pts)]
-    else:
-        # nothing entered yet: empty rows to fill by hand
-        keep = cols
+    pts = [p for p in d.points if p.account_no or p.location]
+    if not pts:  # nothing entered yet: empty rows to fill by hand
         pts = [SupplyPoint() for _ in range(3 if d.audience == "commercial" else 2)]
-    total = 16.6 - 1.2
-    widths = [1.2] + [total / len(keep)] * len(keep)
-    if len(keep) == 3:
-        widths = [1.2, 4.4, 4.4, total - 8.8]
-    rows = [[str(n)] + [getattr(p, k) for k, _ in keep] for n, p in enumerate(pts, 1)]
-    t = _table(doc, [L["no"]] + [h for _, h in keep], rows, widths)
+    widths = [1.2, 6.4, 16.6 - 7.6]
+    rows = [[str(n), p.account_no, p.location] for n, p in enumerate(pts, 1)]
+    t = _table(doc, [L["no"], L["account"], L["place"]], rows, widths)
     for row in t.rows:
         row.cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         for c in row.cells[1:]:

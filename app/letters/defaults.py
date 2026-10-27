@@ -7,7 +7,7 @@ Body syntax (also shown on the template editor):
   A value left empty prints as a blank line to fill by hand.
 - **text** is bold.
 - A line holding only a [[block]] token inserts a block:
-  [[details]] client details table, [[points]] meters / accounts table,
+  [[details]] client details table, [[points]] electricity accounts table,
   [[signatures]] HTC sign-off (with any enclosures under it) beside the client's
   confirmation box, or [[htc_signature]] / [[client_signature]] / [[enclosures]] on their own.
 """
@@ -26,7 +26,7 @@ SUBJECT = "Request for the approved solar PV capacity at our client's premises"
 
 COMMERCIAL_BODY = f"""Dear Sir / Madam,
 
-Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client detailed below to request the approved solar PV capacity for the site. The meter number(s) are listed below for your reference:
+Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client detailed below to request the approved solar PV capacity for the site. The electricity account number(s) are listed below for your reference:
 
 [[details]]
 
@@ -37,7 +37,7 @@ We thank you for your cooperation.
 [[signatures]]"""
 
 COMMERCIAL_CONFIRMATION = ("We, the undersigned, authorise Hussam Technology Company L.L.C. to request "
-                           "and receive from NEDC the approved solar PV capacity for the meter(s) listed above.")
+                           "and receive from NEDC the approved solar PV capacity for the account(s) listed above.")
 
 RESIDENTIAL_BODY = f"""Dear Sir / Madam,
 
@@ -64,7 +64,7 @@ SUBJECT_AR = "طلب القدرة المعتمدة لنظام الطاقة ال�
 
 COMMERCIAL_BODY_AR = f"""تحية طيبة وبعد،
 
-تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا الموضحة بياناته أدناه، بطلب القدرة المعتمدة لنظام الطاقة الشمسية للموقع. وتجدون أدناه رقم/أرقام العدادات للرجوع إليها:
+تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا الموضحة بياناته أدناه، بطلب القدرة المعتمدة لنظام الطاقة الشمسية للموقع. وتجدون أدناه رقم/أرقام حسابات الكهرباء للرجوع إليها:
 
 [[details]]
 
@@ -75,7 +75,7 @@ COMMERCIAL_BODY_AR = f"""تحية طيبة وبعد،
 [[signatures]]"""
 
 COMMERCIAL_CONFIRMATION_AR = ("نحن الموقعين أدناه نفوّض شركة حسام للتقنية ش.م.م بطلب واستلام القدرة "
-                              "المعتمدة لنظام الطاقة الشمسية من شركة نماء لتوزيع الكهرباء للعداد/العدادات الموضحة أعلاه.")
+                              "المعتمدة لنظام الطاقة الشمسية من شركة نماء لتوزيع الكهرباء للحساب/الحسابات الموضحة أعلاه.")
 
 RESIDENTIAL_BODY_AR = f"""تحية طيبة وبعد،
 
