@@ -227,3 +227,4 @@ table.points td:first-child { width: 28px; }
 .letterhead-thumbs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .letterhead-thumbs img { max-width: 420px; width: 100%; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
 @media (max-width: 1000px) { .grid-side { grid-template-columns: 1fr; } }
+.inline-form { margin-bottom: 8px; }

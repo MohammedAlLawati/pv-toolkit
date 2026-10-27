@@ -9,13 +9,13 @@
 <div class="panel">
   <h2>Templates</h2>
   {% if templates %}
-  <table><thead><tr><th>Template</th><th>For</th><th>Reference</th><th></th></tr></thead><tbody>
+  <table><thead><tr><th>Template</th><th>For</th><th>Language</th><th></th></tr></thead><tbody>
   {% for t in templates %}<tr>
     <td><a href="/letters/templates/{{ t.id }}">{{ t.name }}</a></td>
     <td>{{ audiences[t.audience] }}</td>
-    <td class="num">{{ t.ref_prefix }}/…</td>
+    <td>{{ languages[t.language] if t.language in languages else t.language }}</td>
     <td class="r"><a class="btn small primary" href="/letters/new?template_id={{ t.id }}">Write letter</a>
-      <a class="btn small" href="/letters/templates/{{ t.id }}/sample.pdf">Sample PDF</a></td>
+      <a class="btn small" href="/letters/templates/{{ t.id }}/sample.pdf">Blank PDF</a></td>
   </tr>{% endfor %}
   </tbody></table>
   {% else %}<div class="empty">No templates yet.</div>{% endif %}
@@ -26,7 +26,7 @@
   {% if letters %}
   <table><thead><tr><th>Reference</th><th>Date</th><th>Client</th><th>Template</th><th></th></tr></thead><tbody>
   {% for l in letters %}<tr>
-    <td class="num"><a href="/letters/{{ l.id }}">{{ l.ref }}</a></td>
+    <td class="num"><a href="/letters/{{ l.id }}">{{ l.ref or 'Open' }}</a></td>
     <td class="num">{{ l.letter_date or '' }}</td>
     <td>{{ l.title }}</td>
     <td>{{ l.template.name if l.template else '(template deleted)' }}</td>
