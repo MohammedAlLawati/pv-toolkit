@@ -32,12 +32,12 @@ test("every built-in letter builds blank, with no leftover markup", async () => 
 test("values land in the tables, not the sentences", async () => {
   const xml = await documentXml("nedc_commercial", "en", {
     ClientName: "Acme L.L.C.", CRNo: "777", SignatoryName: "Ahmed", SignatoryID: "0987",
-    Date: "27 October 2026", points: [{ meter_no: "M-1" }, { meter_no: "M-2", location: "Shop" }],
+    Date: "27 October 2026", points: [{ account_no: "A-1" }, { account_no: "A-2", location: "Shop" }],
   }, opts);
-  for (const s of ["Acme L.L.C.", "777", "Ahmed", "0987", "27 October 2026", "M-1", "M-2", "Shop"]) {
+  for (const s of ["Acme L.L.C.", "777", "Ahmed", "0987", "27 October 2026", "A-1", "A-2", "Shop"]) {
     assert.ok(xml.includes(s), s);
   }
-  assert.ok(!xml.includes("M-1, M-2"));
+  assert.ok(!xml.includes("A-1, A-2") && !xml.includes("Meter No."));
   assert.ok(!xml.includes("Ref:"));
 });
 

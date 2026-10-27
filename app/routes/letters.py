@@ -272,10 +272,10 @@ async def letter_save(request: Request, db: Session = Depends(get_db)):
         letter.letter_date = date.today()
     keys = {k for k, _ in ls.form_fields(tpl)}
     letter.values_json = ls.dumps({k: s(form, k) for k in sorted(keys)})
-    meters, accounts, places = (form.getlist(k) for k in ("meter_no", "account_no", "location"))
+    accounts, places = form.getlist("account_no"), form.getlist("location")
     points = []
-    for m, a, loc in zip(meters, accounts, places):
-        row = {"meter_no": str(m).strip(), "account_no": str(a).strip(), "location": str(loc).strip()}
+    for a, loc in zip(accounts, places):
+        row = {"account_no": str(a).strip(), "location": str(loc).strip()}
         if any(row.values()):
             points.append(row)
     letter.points_json = ls.dumps(points[:MAX_POINTS])

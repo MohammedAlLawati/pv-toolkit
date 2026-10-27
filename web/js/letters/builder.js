@@ -5,7 +5,7 @@
 //     ClientName, CRNo, SignatoryName, SignatoryID,      // commercial
 //     CivilID,                                           // residential
 //     Location, Date,
-//     points: [{ meter_no, account_no, location }],      // table rows
+//     points: [{ account_no, location }],                // table rows
 //   });
 //
 // Every value is optional: anything left empty prints as a line to fill in by hand.
@@ -155,32 +155,22 @@ function blockDetails(c) {
   return [table(c, rows, widths), gap(c, 9)];
 }
 
+// electricity accounts: account number and location / description
 function blockPoints(c) {
   const { L, t } = c;
-  let pts = (c.v.points || []).filter((p) => p.meter_no || p.account_no || p.location);
-  let cols = [["meter_no", L.meter], ["account_no", L.account], ["location", L.place]];
-  if (t.audience === "residential") cols = [cols[1], ["meter_no", L.meter_opt], cols[2]];
-  let keep;
-  if (pts.length) {
-    // drop columns nobody filled in, but always keep the main number column
-    keep = cols.filter(([k], i) => i === 0 || pts.some((p) => p[k]));
-  } else {
-    // nothing entered yet: empty rows to fill by hand
-    keep = cols;
-    pts = Array.from({ length: t.audience === "commercial" ? 3 : 2 }, () => ({}));
-  }
-  const total = CONTENT_CM - 1.2;
-  const widths = keep.length === 3 ? [1.2, 4.4, 4.4, total - 8.8] : [1.2, ...keep.map(() => total / keep.length)];
-  const white = "FFFFFF";
+  let pts = (c.v.points || []).filter((p) => p.account_no || p.location);
+  if (!pts.length) pts = Array.from({ length: t.audience === "commercial" ? 3 : 2 }, () => ({}));
+  const widths = [1.2, 6.4, CONTENT_CM - 7.6];
   const header = new TableRow({
     tableHeader: true,
-    children: [L.no, ...keep.map(([, h]) => h)].map((h, j) =>
-      cell(c, [cellPara(c, h, { bold: true, color: white })], { width: widths[j], fill: NAVY })),
+    children: [L.no, L.account, L.place].map((h, j) =>
+      cell(c, [cellPara(c, h, { bold: true, color: "FFFFFF" })], { width: widths[j], fill: NAVY })),
   });
   const body = pts.map((p, n) => new TableRow({
     children: [
       cell(c, [cellPara(c, String(n + 1), { align: AlignmentType.CENTER })], { width: widths[0] }),
-      ...keep.map(([k], j) => cell(c, [cellPara(c, p[k] || "", { minLine: 15 })], { width: widths[j + 1] })),
+      cell(c, [cellPara(c, p.account_no || "", { minLine: 15 })], { width: widths[1] }),
+      cell(c, [cellPara(c, p.location || "", { minLine: 15 })], { width: widths[2] }),
     ],
   }));
   return [table(c, [header, ...body], widths), gap(c, 9)];
