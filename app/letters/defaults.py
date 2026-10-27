@@ -22,14 +22,11 @@ Customer Services Department
 Nama Electricity Distribution Company (NEDC)
 Sultanate of Oman"""
 
-DEFAULT_PURPOSE = ("application, design approval and grid connection of a rooftop solar PV "
-                   "system under the net-metering scheme")
+SUBJECT = "Request for the approved solar PV capacity at our client's premises"
 
 COMMERCIAL_BODY = f"""Dear Sir / Madam,
 
-Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client detailed below, regarding the {{{{Purpose}}}} at the premises supplied through the meter(s) listed below.
-
-Our client has appointed HTC as its contractor and authorised representative for this matter. We therefore kindly request that NEDC accepts HTC's submissions and deals with HTC on all correspondence, site inspections and follow-ups relating to the following:
+Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client detailed below, and kindly requests NEDC to provide the approved solar PV capacity for the premises supplied through the following meter(s):
 
 [[details]]
 
@@ -39,14 +36,12 @@ We thank you for your cooperation.
 
 [[signatures]]"""
 
-COMMERCIAL_CONFIRMATION = ("We, the undersigned, confirm that Hussam Technology Company L.L.C. is "
-                           "authorised to act on our behalf with NEDC for the meter(s) listed above.")
+COMMERCIAL_CONFIRMATION = ("We, the undersigned, authorise Hussam Technology Company L.L.C. to request "
+                           "and receive from NEDC the approved solar PV capacity for the meter(s) listed above.")
 
 RESIDENTIAL_BODY = f"""Dear Sir / Madam,
 
-Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client, the owner of the residence detailed below, regarding the {{{{Purpose}}}} at the premises.
-
-The homeowner has appointed HTC as the contractor and authorised representative for this matter. We therefore kindly request that NEDC accepts HTC's submissions and deals with HTC on all correspondence, site inspections and follow-ups relating to the following:
+Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client, the owner of the residence detailed below, and kindly requests NEDC to provide the approved solar PV capacity for the premises supplied through the following electricity account(s):
 
 [[details]]
 
@@ -56,8 +51,8 @@ We thank you for your cooperation.
 
 [[signatures]]"""
 
-RESIDENTIAL_CONFIRMATION = ("I, the undersigned, confirm that Hussam Technology Company L.L.C. is "
-                            "authorised to act on my behalf with NEDC for the account(s) listed above.")
+RESIDENTIAL_CONFIRMATION = ("I, the undersigned, authorise Hussam Technology Company L.L.C. to request "
+                            "and receive from NEDC the approved solar PV capacity for the account(s) listed above.")
 
 # ---- Arabic --------------------------------------------------------------------------------
 
@@ -65,14 +60,11 @@ NEDC_RECIPIENT_AR = """الفاضل/ مدير دائرة خدمات المشتر
 شركة نماء لتوزيع الكهرباء
 سلطنة عُمان"""
 
-DEFAULT_PURPOSE_AR = ("تقديم طلب واعتماد التصميم وربط نظام الطاقة الشمسية الكهروضوئية "
-                      "المركّب على السطح بالشبكة الكهربائية ضمن نظام صافي القياس")
+SUBJECT_AR = "طلب القدرة المعتمدة لنظام الطاقة الشمسية لمبنى عميلنا"
 
 COMMERCIAL_BODY_AR = f"""تحية طيبة وبعد،
 
-تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا الموضحة بياناته أدناه، بخصوص {{{{Purpose}}}}، وذلك للمبنى المغذّى بالعداد/العدادات الموضحة أدناه.
-
-وقد قام عميلنا بتعيين شركة حسام للتقنية مقاولاً وممثلاً معتمداً له في هذا الشأن، لذا نرجو التكرم بقبول طلبات الشركة والتعامل معها في جميع المراسلات والزيارات الميدانية والمتابعات المتعلقة بما يلي:
+تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا الموضحة بياناته أدناه، راجين التكرم بتزويدنا بالقدرة المعتمدة لنظام الطاقة الشمسية الكهروضوئية للمبنى المغذّى بالعداد/العدادات التالية:
 
 [[details]]
 
@@ -82,15 +74,12 @@ COMMERCIAL_BODY_AR = f"""تحية طيبة وبعد،
 
 [[signatures]]"""
 
-COMMERCIAL_CONFIRMATION_AR = ("نحن الموقعين أدناه نؤكد تفويض شركة حسام للتقنية ش.م.م بالتعامل "
-                              "نيابةً عنا مع شركة نماء لتوزيع الكهرباء بخصوص العداد/العدادات "
-                              "الموضحة أعلاه.")
+COMMERCIAL_CONFIRMATION_AR = ("نحن الموقعين أدناه نفوّض شركة حسام للتقنية ش.م.م بطلب واستلام القدرة "
+                              "المعتمدة لنظام الطاقة الشمسية من شركة نماء لتوزيع الكهرباء للعداد/العدادات الموضحة أعلاه.")
 
 RESIDENTIAL_BODY_AR = f"""تحية طيبة وبعد،
 
-تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا مالك المسكن الموضحة بياناته أدناه، بخصوص {{{{Purpose}}}}.
-
-وقد قام المالك بتعيين شركة حسام للتقنية مقاولاً وممثلاً معتمداً له في هذا الشأن، لذا نرجو التكرم بقبول طلبات الشركة والتعامل معها في جميع المراسلات والزيارات الميدانية والمتابعات المتعلقة بما يلي:
+تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا مالك المسكن الموضحة بياناته أدناه، راجين التكرم بتزويدنا بالقدرة المعتمدة لنظام الطاقة الشمسية الكهروضوئية للمسكن المغذّى بالحساب/الحسابات التالية:
 
 [[details]]
 
@@ -100,49 +89,32 @@ RESIDENTIAL_BODY_AR = f"""تحية طيبة وبعد،
 
 [[signatures]]"""
 
-RESIDENTIAL_CONFIRMATION_AR = ("أنا الموقّع أدناه أؤكد تفويض شركة حسام للتقنية ش.م.م بالتعامل "
-                               "نيابةً عني مع شركة نماء لتوزيع الكهرباء بخصوص الحساب/الحسابات "
-                               "الموضحة أعلاه.")
+RESIDENTIAL_CONFIRMATION_AR = ("أنا الموقّع أدناه أفوّض شركة حسام للتقنية ش.م.م بطلب واستلام القدرة "
+                               "المعتمدة لنظام الطاقة الشمسية من شركة نماء لتوزيع الكهرباء للحساب/الحسابات الموضحة أعلاه.")
 
 DEFAULT_TEMPLATES = [
     {
         "key": "nedc_commercial", "language": "en",
-        "name": "NEDC authorisation: commercial client",
-        "audience": "commercial",
-        "recipient": NEDC_RECIPIENT,
-        "subject": "Authorisation for HTC to act on behalf of our client",
-        "body": COMMERCIAL_BODY,
-        "confirmation": COMMERCIAL_CONFIRMATION,
-        "purpose": DEFAULT_PURPOSE,
+        "name": "NEDC approved capacity request: commercial client",
+        "audience": "commercial", "recipient": NEDC_RECIPIENT, "subject": SUBJECT,
+        "body": COMMERCIAL_BODY, "confirmation": COMMERCIAL_CONFIRMATION, "purpose": "",
     },
     {
         "key": "nedc_residential", "language": "en",
-        "name": "NEDC authorisation: residential client",
-        "audience": "residential",
-        "recipient": NEDC_RECIPIENT,
-        "subject": "Authorisation for HTC to act on behalf of our client",
-        "body": RESIDENTIAL_BODY,
-        "confirmation": RESIDENTIAL_CONFIRMATION,
-        "purpose": DEFAULT_PURPOSE,
+        "name": "NEDC approved capacity request: residential client",
+        "audience": "residential", "recipient": NEDC_RECIPIENT, "subject": SUBJECT,
+        "body": RESIDENTIAL_BODY, "confirmation": RESIDENTIAL_CONFIRMATION, "purpose": "",
     },
     {
         "key": "nedc_commercial_ar", "language": "ar",
-        "name": "NEDC authorisation: commercial client (Arabic)",
-        "audience": "commercial",
-        "recipient": NEDC_RECIPIENT_AR,
-        "subject": "تفويض شركة حسام للتقنية بالتعامل نيابةً عن عميلنا",
-        "body": COMMERCIAL_BODY_AR,
-        "confirmation": COMMERCIAL_CONFIRMATION_AR,
-        "purpose": DEFAULT_PURPOSE_AR,
+        "name": "NEDC approved capacity request: commercial client (Arabic)",
+        "audience": "commercial", "recipient": NEDC_RECIPIENT_AR, "subject": SUBJECT_AR,
+        "body": COMMERCIAL_BODY_AR, "confirmation": COMMERCIAL_CONFIRMATION_AR, "purpose": "",
     },
     {
         "key": "nedc_residential_ar", "language": "ar",
-        "name": "NEDC authorisation: residential client (Arabic)",
-        "audience": "residential",
-        "recipient": NEDC_RECIPIENT_AR,
-        "subject": "تفويض شركة حسام للتقنية بالتعامل نيابةً عن عميلنا",
-        "body": RESIDENTIAL_BODY_AR,
-        "confirmation": RESIDENTIAL_CONFIRMATION_AR,
-        "purpose": DEFAULT_PURPOSE_AR,
+        "name": "NEDC approved capacity request: residential client (Arabic)",
+        "audience": "residential", "recipient": NEDC_RECIPIENT_AR, "subject": SUBJECT_AR,
+        "body": RESIDENTIAL_BODY_AR, "confirmation": RESIDENTIAL_CONFIRMATION_AR, "purpose": "",
     },
 ]

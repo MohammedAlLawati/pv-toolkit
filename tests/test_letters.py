@@ -90,9 +90,9 @@ def test_trim_blank_rows():
 def test_builtin_templates_and_letterhead(c):
     page = c.get("/letters")
     assert page.status_code == 200
-    assert "NEDC authorisation: commercial client" in page.text
-    assert "NEDC authorisation: residential client" in page.text
-    assert "NEDC authorisation: commercial client (Arabic)" in page.text
+    assert "NEDC approved capacity request: commercial client" in page.text
+    assert "NEDC approved capacity request: residential client" in page.text
+    assert "NEDC approved capacity request: commercial client (Arabic)" in page.text
     assert "HTC (Hussam Technology Company)" in page.text
     tpl, _, _ = _ids()
     r = c.get(f"/letters/templates/{tpl['nedc_commercial']}/sample.docx")
@@ -107,6 +107,7 @@ def test_commercial_letter_from_client(c):
     page = c.get(f"/letters/new?template_id={tpl['nedc_commercial']}&client_id={co}")
     assert 'value="Ahmed Al Harthy"' in page.text and 'value="1234567"' in page.text
     assert 'name="ref"' not in page.text  # the NEDC letters carry no reference number
+    assert 'name="Purpose"' not in page.text  # the wording doesn't use {{Purpose}}
     r = c.post("/letters/save", data={
         "csrf_token": csrf(page.text), "template_id": tpl["nedc_commercial"], "client_id": co,
         "letter_date": "2026-10-27", "ClientName": "Al Noor Trading L.L.C.",
@@ -124,6 +125,7 @@ def test_commercial_letter_from_client(c):
         assert text in xml, text
     # meter numbers only appear in the table, and nobody from HTC is named
     assert "M-111, M-222" not in xml and "Al Muataz" not in xml
+    assert "approved solar PV capacity" in xml and "design" not in xml
     assert "{{" not in xml and "Ref:" not in xml
 
 

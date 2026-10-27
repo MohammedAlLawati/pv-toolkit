@@ -113,8 +113,8 @@ blank in the generated document, and the app logs the name.
 ## Letters
 
 - **Letters** in the menu: letters on the HTC letterhead, filled from editable templates.
-- **Built in:** four NEDC letters (English and Arabic) where HTC (C.R. 1665626) acts on the
-  client's behalf:
+- **Built in:** four NEDC letters (English and Arabic) in which HTC (C.R. 1665626) asks NEDC,
+  on the client's behalf, for the approved solar PV capacity at the premises:
   - **commercial:** company name, C.R., authorised signatory and ID, one or more meters
   - **residential:** homeowner, civil ID, one or two electricity accounts
   - No reference number, no enclosures and no HTC person named. HTC's name, designation,

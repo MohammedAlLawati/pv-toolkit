@@ -28,8 +28,11 @@ TEMPLATE_TEXT = ("language", "name", "audience", "recipient", "subject", "body",
                  "purpose")
 
 
-def form_fields(audience: str) -> list[tuple[str, str]]:
-    return [(k, label) for k, label, aud in FORM_FIELDS if audience in aud]
+def form_fields(tpl: LetterTemplate) -> list[tuple[str, str]]:
+    """The inputs a template's letter form asks for; Purpose only when the wording uses it."""
+    text = " ".join((tpl.subject, tpl.body, tpl.confirmation))
+    return [(k, label) for k, label, aud in FORM_FIELDS
+            if tpl.audience in aud and (k != "Purpose" or "{{Purpose}}" in text.replace(" ", ""))]
 
 
 def ensure_defaults(db: Session) -> None:

@@ -205,7 +205,7 @@ def letterhead_delete(hid: int, request: Request, db: Session = Depends(get_db))
 
 def _form_ctx(db: Session, tpl: LetterTemplate) -> dict:
     return dict(
-        tpl=tpl, fields=ls.form_fields(tpl.audience), audiences=AUDIENCES,
+        tpl=tpl, fields=ls.form_fields(tpl), audiences=AUDIENCES,
         templates=db.scalars(select(LetterTemplate).order_by(LetterTemplate.name)).all(),
         clients=db.scalars(select(Client).order_by(Client.name)).all(),
         projects=db.scalars(select(Project).order_by(Project.name)).all(),
@@ -245,7 +245,7 @@ def letter_edit(lid: int, request: Request, db: Session = Depends(get_db)):
         flash(request, "This letter's template was deleted, so it can't be edited.", "error")
         return redirect("/letters")
     _docx, missing = ls.render_letter(db, letter)
-    labels = dict(ls.form_fields(tpl.audience)) | {"MeterList": "meter numbers",
+    labels = dict(ls.form_fields(tpl)) | {"MeterList": "meter numbers",
                                                    "AccountList": "account numbers", "Date": "date"}
     return render(request, "letter_form.html", nav="letters", letter=letter, values=letter.values,
                   missing=sorted(labels.get(k, k) for k in missing),
@@ -270,7 +270,7 @@ async def letter_save(request: Request, db: Session = Depends(get_db)):
         letter.letter_date = date.fromisoformat(s(form, "letter_date"))
     except ValueError:
         letter.letter_date = date.today()
-    keys = {k for k, _ in ls.form_fields(tpl.audience)}
+    keys = {k for k, _ in ls.form_fields(tpl)}
     letter.values_json = ls.dumps({k: s(form, k) for k in sorted(keys)})
     meters, accounts, places = (form.getlist(k) for k in ("meter_no", "account_no", "location"))
     points = []
