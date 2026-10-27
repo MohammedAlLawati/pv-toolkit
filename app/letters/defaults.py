@@ -26,7 +26,7 @@ SUBJECT = "Request for the approved solar PV capacity at our client's premises"
 
 COMMERCIAL_BODY = f"""Dear Sir / Madam,
 
-Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client detailed below, and kindly requests NEDC to provide the approved solar PV capacity for the premises supplied through the following meter(s):
+Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client detailed below to request the approved solar PV capacity for the site. The meter number(s) are listed below for your reference:
 
 [[details]]
 
@@ -41,7 +41,7 @@ COMMERCIAL_CONFIRMATION = ("We, the undersigned, authorise Hussam Technology Com
 
 RESIDENTIAL_BODY = f"""Dear Sir / Madam,
 
-Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client, the owner of the residence detailed below, and kindly requests NEDC to provide the approved solar PV capacity for the premises supplied through the following electricity account(s):
+Hussam Technology Company L.L.C. (HTC), C.R. No. {HTC_CR}, writes to Nama Electricity Distribution Company (NEDC) on behalf of our client, the owner of the residence detailed below, to request the approved solar PV capacity for the site. The electricity account number(s) are listed below for your reference:
 
 [[details]]
 
@@ -64,7 +64,7 @@ SUBJECT_AR = "طلب القدرة المعتمدة لنظام الطاقة ال�
 
 COMMERCIAL_BODY_AR = f"""تحية طيبة وبعد،
 
-تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا الموضحة بياناته أدناه، راجين التكرم بتزويدنا بالقدرة المعتمدة لنظام الطاقة الشمسية الكهروضوئية للمبنى المغذّى بالعداد/العدادات التالية:
+تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا الموضحة بياناته أدناه، بطلب القدرة المعتمدة لنظام الطاقة الشمسية للموقع. وتجدون أدناه رقم/أرقام العدادات للرجوع إليها:
 
 [[details]]
 
@@ -79,7 +79,7 @@ COMMERCIAL_CONFIRMATION_AR = ("نحن الموقعين أدناه نفوّض ش�
 
 RESIDENTIAL_BODY_AR = f"""تحية طيبة وبعد،
 
-تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا مالك المسكن الموضحة بياناته أدناه، راجين التكرم بتزويدنا بالقدرة المعتمدة لنظام الطاقة الشمسية الكهروضوئية للمسكن المغذّى بالحساب/الحسابات التالية:
+تتقدم إليكم شركة حسام للتقنية ش.م.م (HTC)، سجل تجاري رقم {HTC_CR}، نيابةً عن عميلنا مالك المسكن الموضحة بياناته أدناه، بطلب القدرة المعتمدة لنظام الطاقة الشمسية للموقع. وتجدون أدناه رقم/أرقام حسابات الكهرباء للرجوع إليها:
 
 [[details]]
 
