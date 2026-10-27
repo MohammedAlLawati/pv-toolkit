@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PV Toolkit</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <script src="vendor/jszip.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <a class="brand" href="#/"><img src="icon.svg" alt=""><span>PV Toolkit</span></a>
+    <nav id="nav">
+      <a href="#/" data-nav="home">Dashboard</a>
+      <a href="#/projects" data-nav="projects">Projects</a>
+      <a href="#/clients" data-nav="clients">Clients</a>
+      <a href="#/letters" data-nav="letters">Letters</a>
+      <div class="navhead">Engineering</div>
+      <a href="#/sizing" data-nav="sizing">String &amp; inverter sizing</a>
+      <a href="#/rules" data-nav="rules">Design rules</a>
+      <span class="soon" title="Phase 3">Yield simulation &amp; reports <em>Phase 3</em></span>
+      <span class="soon" title="Phase 4">Site layout &amp; POCs <em>Phase 4</em></span>
+      <div class="navhead">Sales</div>
+      <span class="soon" title="Phase 6">Offer decks <em>Phase 6</em></span>
+      <div class="navhead">Setup</div>
+      <a href="#/library" data-nav="library">Equipment library</a>
+      <a href="#/parties" data-nav="parties">Contractors &amp; consultants</a>
+      <a href="#/settings" data-nav="settings">Letterhead &amp; backup</a>
+    </nav>
+    <div class="local">Your data is kept in this browser only. <a href="#/settings">Download a backup</a> regularly.</div>
+  </aside>
+  <main id="view"><div class="loading">Loading…</div></main>
+</div>
+<noscript>PV Toolkit needs JavaScript.</noscript>
+</body>
+</html>
