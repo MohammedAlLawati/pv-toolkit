@@ -37,7 +37,16 @@ h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing
 /* layout */
 .shell { display: grid; grid-template-columns: 236px 1fr; min-height: 100vh; }
 .side { background: var(--navy); color: #c9d4e2; padding: 18px 14px; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.side-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
 .brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-weight: 650; font-size: 15px; padding: 4px 8px 18px; }
+.side-toggle { background: none; border: 1px solid #3b5272; border-radius: 6px; color: #c9d4e2; width: 28px; height: 28px; display: grid; place-items: center; cursor: pointer; flex: none; }
+.side-toggle:hover { background: var(--navy-2); color: #fff; }
+.shell.collapsed { grid-template-columns: 56px 1fr; }
+.shell.collapsed .side { padding: 14px 8px; }
+.shell.collapsed .side-top { flex-direction: column; align-items: center; }
+.shell.collapsed .brand { padding: 4px 0 10px; }
+.shell.collapsed .brand span, .shell.collapsed .side nav, .shell.collapsed .side .local { display: none; }
+.shell.collapsed .side-toggle svg { transform: rotate(180deg); }
 .brand img { width: 26px; height: 26px; }
 .side nav { display: flex; flex-direction: column; gap: 1px; flex: 1; }
 .side nav a, .side nav .soon { padding: 7px 10px; border-radius: 6px; color: #c9d4e2; text-decoration: none; }
@@ -147,6 +156,10 @@ td.r, th.r { text-align: right; }
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .side { position: static; height: auto; }
+  .shell.collapsed { grid-template-columns: 1fr; }
+  .shell.collapsed .side-top { flex-direction: row; justify-content: space-between; }
+  .shell.collapsed .brand span { display: inline; }
+  .shell.collapsed .brand { padding: 4px 8px; }
   main { padding: 20px 16px 40px; }
   .grid2, .grid3, .stats, .summary, .live { grid-template-columns: 1fr 1fr; }
 }
@@ -300,3 +313,4 @@ details summary { cursor: pointer; font-weight: 600; }
   .head .actions { flex-wrap: wrap; }
   .grid2, .summary { grid-template-columns: 1fr; }
 }
+.fields.reports { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }

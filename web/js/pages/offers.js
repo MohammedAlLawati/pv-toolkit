@@ -299,8 +299,11 @@ export async function quick(main, { params, query }) {
 <form id="offer" class="quick" autocomplete="off">
   <div class="panel">
     <h2>Helioscope reports</h2>
-    <p class="small muted">Choose the simulation and shading reports together. They fill in the equipment and counts, the energy figures, the shading loss and the pictures for slides 14, 16 and 17. Anything they fill can be changed below.</p>
-    <input type="file" id="report" accept="application/pdf" multiple aria-label="Helioscope PDF reports">
+    <p class="small muted">They fill in the equipment and counts, the energy figures, the shading loss and the pictures for slides 14, 16 and 17. Anything they fill can be changed below.</p>
+    <div class="fields reports">
+      <label>Simulation report (PDF) <input type="file" data-report="simulation" accept="application/pdf"><span class="hint" data-report-status="simulation">Annual production report: equipment, energy, layout</span></label>
+      <label>Shading report (PDF) <input type="file" data-report="shading" accept="application/pdf"><span class="hint" data-report-status="shading">Shading heatmap, losses and the two 3D views</span></label>
+    </div>
     <div id="report-found"></div>
   </div>
 
@@ -576,17 +579,37 @@ export async function quick(main, { params, query }) {
     for (const b of out.querySelectorAll("[data-crop]")) b.addEventListener("click", () => openCrop(report.pages[Number(b.dataset.crop)]));
   }
 
-  main.querySelector("#report").addEventListener("change", async (e) => {
-    const files = [...e.target.files];
-    if (!files.length) return;
+  // each report has its own box; the figures and pictures come from whichever are loaded
+  const loaded = { simulation: null, shading: null };
+  for (const input of main.querySelectorAll("[data-report]")) {
+    input.addEventListener("change", async () => {
+      const file = input.files[0], slot = input.dataset.report;
+      if (!file) return;
+      const status = main.querySelector(`[data-report-status="${slot}"]`);
+      status.textContent = "Opening…";
+      try {
+        const { readReport } = await import("../offer/helioscope.js");
+        const r = await readReport(file, (msg) => { status.textContent = msg; });
+        loaded[slot] = r;
+        status.innerHTML = r.kind === slot || r.kind === "report"
+          ? html`<span class="ok-text">${file.name}</span>`.toString()
+          : html`<span class="missing-text">${file.name} looks like the ${r.kind} report; it's used anyway</span>`.toString();
+        await applyReports();
+      } catch (err) {
+        console.error(err);
+        status.innerHTML = html`<span class="missing-text">Couldn't read ${file.name}: ${err.message || err}</span>`.toString();
+      }
+    });
+  }
+
+  async function applyReports() {
     const found = main.querySelector("#report-found");
-    found.innerHTML = html`<div class="small muted spaced-top" id="report-progress">Opening the reports…</div>`;
     try {
-      const { readReport, parseReport, monthsFromBars } = await import("../offer/helioscope.js");
+      const { parseReport, monthsFromBars } = await import("../offer/helioscope.js");
+      for (const x of [...report.images, ...report.pages]) URL.revokeObjectURL(x.url);
       report.images = []; report.pages = [];
       let text = "", bars = null;
-      for (const file of files) {
-        const r = await readReport(file, (msg) => { const el = main.querySelector("#report-progress"); if (el) el.textContent = msg; });
+      for (const r of [loaded.simulation, loaded.shading].filter(Boolean)) {
         report.images.push(...r.images.map((im) => ({ ...im, kind: r.kind, url: URL.createObjectURL(im.blob) })));
         report.pages.push(...r.pages.map((pg) => ({ ...pg, kind: r.kind, url: URL.createObjectURL(pg.blob) })));
         text += r.text + "\n";
@@ -629,9 +652,9 @@ export async function quick(main, { params, query }) {
       preview();
     } catch (err) {
       console.error(err);
-      found.innerHTML = html`<div class="flash error spaced-top">Couldn't read that PDF: ${err.message || err}</div>`;
+      found.innerHTML = html`<div class="flash error spaced-top">Couldn't use the reports: ${err.message || err}</div>`;
     }
-  });
+  }
 
   // crop dialog: drag a rectangle on a page, then pick the slot
   function openCrop(pg) {

@@ -13,7 +13,12 @@
 <body>
 <div class="shell">
   <aside class="side">
-    <a class="brand" href="#/"><img src="icon.svg" alt=""><span>PV Toolkit</span></a>
+    <div class="side-top">
+      <a class="brand" href="#/"><img src="icon.svg" alt=""><span>PV Toolkit</span></a>
+      <button type="button" class="side-toggle" id="side-toggle" aria-expanded="true" aria-controls="nav" title="Hide the menu">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
     <nav id="nav">
       <a href="#/" data-nav="home">Dashboard</a>
       <a href="#/projects" data-nav="projects">Projects</a>
