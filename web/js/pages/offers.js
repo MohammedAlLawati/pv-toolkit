@@ -313,7 +313,6 @@ export async function quick(main, { params, query }) {
       <label class="wide">Client name <input name="client_name" value="${o.client_name}" list="client-names" required></label>
       <label>Reference code <input name="reference_code" value="${o.reference_code || suggestCode(o.client_name)}"><span class="hint">In "HTC/&lt;code&gt;/TCO/01". Suggested from the client's initials</span></label>
       <label>Design type <select name="installation_type">${designTypes.map((t) => html`<option ${sel(t === o.installation_type)}>${t}</option>`)}<option value="__new">Add a type…</option></select></label>
-      <label>Price (OMR per kWp) <input name="price_per_kwp" value="${g(o.price_per_kwp)}" inputmode="decimal" required><span class="hint" id="total"></span></label>
     </div>
     <datalist id="client-names">${byName(all.clients).map((c) => html`<option value="${c.name}">`)}</datalist>
   </div>
@@ -351,8 +350,9 @@ export async function quick(main, { params, query }) {
   </div>
 
   <div class="panel">
-    <h2>Payback</h2>
+    <h2>Payback and commercials</h2>
     <div class="fields">
+      <label>Price (OMR per kWp) <input name="price_per_kwp" value="${g(o.price_per_kwp)}" inputmode="decimal" required><span class="hint" id="total"></span></label>
       <label>Tariff (bz/kWh) <input name="tariff_bz" value="${g(o.tariff_bz)}" inputmode="decimal"><span class="hint">Values the energy produced</span></label>
       <label id="deg-input">Yearly degradation (%) <input name="degradation_pct" value="${g(o.degradation_pct)}" inputmode="decimal"><span class="hint">This module's library entry has no degradation figures</span></label>
       <div class="wide small" id="deg-note"></div>

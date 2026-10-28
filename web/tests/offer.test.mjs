@@ -202,6 +202,12 @@ test("Helioscope report figures", async () => {
   assert.deepEqual([r.module_count, r.module_wp, r.inverter_qty, r.module_id, r.inverter_id], [805, 720, 4, 1, 2]);
   assert.deepEqual([r.tilt_deg, r.azimuth_deg, r.racking], [5, 109, "Flush Mount"]);
   assert.equal(r.pr_pct, 77.3);
+  // the components table read out of order: the count lands inside the wrapped model name
+  const shuffled = sim.replace("Module Jinko Solar, JKM720N-66HL5- BDV-Z6-EN (720W) 805 (579.60 kW)", "Module Jinko Solar, JKM720N-66HL5- 805 (579.60 BDV-Z6-EN (720W) kW)");
+  const r2 = parseReport(shuffled, lib);
+  assert.deepEqual([r2.module_count, r2.module_wp, r2.module_id], [805, 720, 1]);
+  // no components table: the field segments' modules are added up
+  assert.equal(parseReport(sim.replace(/Component Name[\s\S]*?Components/, "")).module_count, 60 + 435);
   const shade = "Totals, weighted by kWp 805 579.6 kWp 2,199.5kWh/m 986.8 MWh 91.4% 96.5% 91.2%";
   assert.equal(parseReport(shade).shading_loss_pct, 3.5);
 });
