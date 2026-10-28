@@ -107,3 +107,38 @@ test("environmental equivalents use the EPA Calc spreadsheet factors", () => {
   assert.equal(values.Cars, "1,015");
   assert.equal(values.Seedlings, "70,524");
 });
+
+test("quick offer: capacities, price and a client name make a whole deck", async () => {
+  const { toProject, annualKwh, quickMissing } = await import("../js/offer/quick.js");
+  const module = { ...base.module, id: 7 }, inverter = { ...base.inverter, id: 9 };
+  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, inverter]]), client: new Map() };
+  const o = { client_name: "Al Noor Trading", dc_kwp: 148.8, ac_kw: 125, subtotal_omr: 52000, module_id: 7, inverter_id: 9,
+              tariff_bz: 32, degradation_pct: 0.65, specific_yield: 1650 };
+  assert.deepEqual(quickMissing(o), []);
+  assert.deepEqual(quickMissing({ ...o, subtotal_omr: null, client_name: "" }), ["Client name", "Price"]);
+  assert.equal(annualKwh(o).kwh, 148.8 * 1650);
+  assert.equal(annualKwh({ ...o, annual_gen_kwh: 250000 }).source, "annual");
+
+  const p = toProject(o, lookup);
+  assert.equal(p.module_count, Math.round(148800 / module.wp));
+  assert.equal(p.inverter_qty, Math.max(1, Math.round(125 / inverter.ac_kw)));
+  const { text, values } = await deck(p);
+  assert.equal(values.DCCapacity, "148.8");     // stated capacity, not module count × Wp
+  assert.equal(values.ACCapacity, "125");
+  assert.equal(values.Name, "Al Noor Trading");
+  assert.equal(values.AnnualGenKWh, "245,520");
+  assert.ok(values.PaybackText && values.ROI && values.CO2Tonnes);
+  assert.ok(!/\{\{\w+\}\}/.test(text), "no placeholder left unfilled");
+  assert.ok(text.includes("Al Noor Trading"));
+});
+
+test("Helioscope report text: system figures and named equipment", async () => {
+  const { parseReport } = await import("../js/offer/helioscope.js");
+  const text = `System Metrics Design Design 1 Module DC Nameplate 148.2 kWp Inverter AC Nameplate 125.0 kW Load Ratio: 1.19
+    Annual Production 245.6 MWh Performance Ratio 80.1% kWh/kWp 1,657.2 Weather Dataset TMY, 10km grid
+    Components Inverters SG125CX-P2 (Sungrow) 1 (125.0 kW) Module Jinko Solar, JKM620N-78HL4-BDV (620W) 239 (148.2 kW)`;
+  const f = parseReport(text, { modules: [{ id: 1, model: "JKM620N-78HL4-BDV" }, { id: 2, model: "JKM620N" }],
+                                inverters: [{ id: 5, model: "SG125CX-P2" }, { id: 6, model: "SG150CX" }] });
+  assert.deepEqual(f, { dc_kwp: 148.2, ac_kw: 125, annual_gen_kwh: 245600, specific_yield: 1657.2, module_id: 1, inverter_id: 5 });
+  assert.deepEqual(parseReport("Module DC Nameplate 1.25 MWp Annual Production 2,010.5 MWh"), { dc_kwp: 1250, annual_gen_kwh: 2010500 });
+});

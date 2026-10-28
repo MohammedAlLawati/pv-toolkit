@@ -42,8 +42,9 @@ export function initials(name) {
 
 // ---- derived values --------------------------------------------------------------------
 
-export const dcKwp = (p) => (p.module && p.module_count ? (p.module.wp * p.module_count) / 1000 : null);
-export const acKw = (p) => (p.inverter && p.inverter_qty ? p.inverter.ac_kw * p.inverter_qty : null);
+// A quick offer (no module count / inverter quantity) states its capacities as dc_kwp / ac_kw.
+export const dcKwp = (p) => (isNum(p.dc_kwp) ? p.dc_kwp : p.module && p.module_count ? (p.module.wp * p.module_count) / 1000 : null);
+export const acKw = (p) => (isNum(p.ac_kw) ? p.ac_kw : p.inverter && p.inverter_qty ? p.inverter.ac_kw * p.inverter_qty : null);
 export function dcAcRatio(p) {
   const dc = dcKwp(p), ac = acKw(p);
   return dc && ac ? dc / ac : null;
