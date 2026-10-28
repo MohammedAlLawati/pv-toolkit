@@ -8,7 +8,9 @@ The browser fills the result (web/js/offer/). This script:
 - tags slides in p:cSld/@name ("offer:..."): datasheet slides for one module / inverter
   model, the shadow slide (dropped without a shadow image) and two new spec slides
   (a table of the library values, used when the template has no datasheet slides);
-- adds image slots (p:pic with descr "img:<key>") for the site, shadow and structure pictures;
+- adds image slots (p:pic with descr "img:<key>") for the site, shadow and two structure (3D view)
+  pictures, and tags the HTC logos that sit on them (descr "logo:<key>");
+- turns the shadow slide's three paragraphs into {{ShadeP1..3}} (they change when shading is high);
 - replaces the CO2 picture with text and the cash-flow picture with a chart;
 - unlinks the charts from the original Excel file (the path named another client);
 - re-encodes large photos so the template stays small.
@@ -172,6 +174,16 @@ def tag_slide(slide, tag: str) -> None:
     slide.find(q("p:cSld")).set("name", tag)
 
 
+def tag_logo(slide, name: str, key: str) -> None:
+    """Mark a logo picture to sit in a corner of image slot `key` (moved there by the browser,
+    dropped with the image), and bring it in front of the slot."""
+    pic = shape_named(slide, name)
+    pic.find(".//" + q("p:cNvPr")).set("descr", f"logo:{key}")
+    tree = pic.getparent()
+    tree.remove(pic)
+    tree.append(pic)
+
+
 def max_shape_id(slide) -> int:
     return max(int(e.get("id")) for e in slide.iter(q("p:cNvPr")))
 
@@ -244,7 +256,15 @@ def remove_shape(pkg: Pkg, n: int, name: str):
         xfrm = shp.find(q("p:xfrm"))
     off, ext = xfrm.find(q("a:off")), xfrm.find(q("a:ext"))
     box = tuple(int(v) for v in (off.get("x"), off.get("y"), ext.get("cx"), ext.get("cy")))
+    blip = shp.find(".//" + q("a:blip"))
     shp.getparent().remove(shp)
+    if blip is not None:  # drop the picture's relationship unless another shape still uses it
+        rid = blip.get(q("r:embed"))
+        if not any(b.get(q("r:embed")) == rid for b in pkg.slide(n).iter(q("a:blip"))):
+            rels = pkg.rels(f"ppt/slides/slide{n}.xml")
+            for r in list(rels):
+                if r.get("Id") == rid:
+                    rels.remove(r)
     return box
 
 
@@ -302,8 +322,18 @@ def spec_slide(pkg: Pkg, n: int, table_src, title: str, rows: list[tuple[str, st
 
 
 def copy_chart(pkg: Pkg, src: int, new: int) -> None:
-    for d, f in (("ppt/charts", f"chart{src}.xml"), ("ppt/charts/_rels", f"chart{src}.xml.rels")):
-        pkg.put(f"{d}/{f.replace(str(src), str(new), 1)}", pkg.parts[f"{d}/{f}"])
+    """Copy a chart with its own style and colour parts (PowerPoint expects one set per chart)."""
+    pkg.put(f"ppt/charts/chart{new}.xml", pkg.parts[f"ppt/charts/chart{src}.xml"])
+    rels = etree.fromstring(pkg.parts[f"ppt/charts/_rels/chart{src}.xml.rels"])
+    for r in rels:
+        m = re.match(r"(style|colors)\d+\.xml$", r.get("Target"))
+        if m:
+            target = f"{m.group(1)}{new}.xml"
+            pkg.put(f"ppt/charts/{target}", pkg.parts["ppt/charts/" + r.get("Target")])
+            pkg.add_override(f"ppt/charts/{target}", "application/vnd.ms-office.chartstyle+xml" if m.group(1) == "style"
+                             else "application/vnd.ms-office.chartcolorstyle+xml")
+            r.set("Target", target)
+    pkg.put(f"ppt/charts/_rels/chart{new}.xml.rels", etree.tostring(rels, xml_declaration=True, encoding="UTF-8", standalone=True))
     pkg.add_override(f"ppt/charts/chart{new}.xml", "application/vnd.openxmlformats-officedocument.drawingml.chart+xml")
 
 
@@ -408,8 +438,17 @@ def build() -> None:
     add_image_slot(pkg, 14, "site", 0.4, 1.0, 5.4, 3.95)
     add_image_slot(pkg, 16, "shadow", 0.4, 1.1, 5.6, 3.95)
     tag_slide(pkg.slide(16), "offer:needs:shadow")
-    add_image_slot(pkg, 17, "structure", 1.5, 1.0, 7.0, 3.3)
+    s16 = pkg.slide(16)
+    for key, needle in (("ShadeP1", "As demonstrated in the simulation"), ("ShadeP2", "This is visually confirmed"),
+                        ("ShadeP3", "The uniform shading analysis")):
+        set_para(para_with(s16, needle), "{{%s}}" % key)
+    tag_logo(s16, "Picture 1", "shadow")
+    # 17: the two 3D angle views from the shading report, side by side
+    add_image_slot(pkg, 17, "structure", 0.45, 1.0, 4.4, 3.3)
+    add_image_slot(pkg, 17, "structure2", 5.15, 1.0, 4.4, 3.3)
     s17 = pkg.slide(17)
+    tag_logo(s17, "Picture 10", "structure")
+    tag_logo(s17, "Picture 1", "structure2")
     set_run(s17, "Installation Type:", "Installation Type: {{InstallationType}}")
     set_run(s17, "Tilt / Orientation:", "Tilt / Orientation: {{Tilt}}° / {{Orientation}}")
     set_run(s17, "Height: m", "Height: {{Elevation}} m")
