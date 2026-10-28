@@ -90,3 +90,53 @@ test("no relationship points at a removed part", async () => {
   for (const m of ct.matchAll(/PartName="\/([^"]+)"/g)) if (!names.has(m[1])) broken.push("content type for " + m[1]);
   assert.deepEqual(broken, []);
 });
+
+test("offerMissing lists what the deck still needs", async () => {
+  const { offerMissing } = await import("../js/offer/values.js");
+  assert.deepEqual(offerMissing(base), []);
+  assert.deepEqual(offerMissing({ ...base, subtotal_omr: null, annual_gen_kwh: 0, monthly_kwh: null }),
+                   ["Annual generation", "Price (subtotal)"]);
+});
+
+test("environmental equivalents use the EPA Calc spreadsheet factors", () => {
+  // EPA Calc sheet 2: 5,920 × 625 W = 3,700 kWp × 1,650 = 6,105,000 kWh
+  const { values } = buildOfferValues({ ...base, annual_gen_kwh: 6105000, monthly_kwh: null });
+  assert.equal(values.CO2Tonnes, "4,267");
+  assert.equal(values.Homes, "185");
+  assert.equal(values.GasGallons, "479,897");
+  assert.equal(values.Cars, "1,015");
+  assert.equal(values.Seedlings, "70,524");
+});
+
+test("quick offer: capacities, price and a client name make a whole deck", async () => {
+  const { toProject, annualKwh, quickMissing } = await import("../js/offer/quick.js");
+  const module = { ...base.module, id: 7 }, inverter = { ...base.inverter, id: 9 };
+  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, inverter]]), client: new Map() };
+  const o = { client_name: "Al Noor Trading", dc_kwp: 148.8, ac_kw: 125, subtotal_omr: 52000, module_id: 7, inverter_id: 9,
+              tariff_bz: 32, degradation_pct: 0.65, specific_yield: 1650 };
+  assert.deepEqual(quickMissing(o), []);
+  assert.deepEqual(quickMissing({ ...o, subtotal_omr: null, client_name: "" }), ["Client name", "Price"]);
+  assert.equal(annualKwh(o).kwh, 148.8 * 1650);
+  assert.equal(annualKwh({ ...o, annual_gen_kwh: 250000 }).source, "annual");
+
+  const p = toProject(o, lookup);
+  assert.equal(p.module_count, Math.round(148800 / module.wp));
+  assert.equal(p.inverter_qty, Math.max(1, Math.round(125 / inverter.ac_kw)));
+  const { text, values } = await deck(p);
+  assert.equal(values.DCCapacity, "148.8");     // stated capacity, not module count × Wp
+  assert.equal(values.ACCapacity, "125");
+  assert.equal(values.Name, "Al Noor Trading");
+  assert.equal(values.AnnualGenKWh, "245,520");
+  assert.ok(values.PaybackText && values.ROI && values.CO2Tonnes);
+  assert.ok(!/\{\{\w+\}\}/.test(text), "no placeholder left unfilled");
+  assert.ok(text.includes("Al Noor Trading"));
+});
+
+test("Helioscope pictures: which slot they suit", async () => {
+  const { suggestSlot } = await import("../js/offer/helioscope.js");
+  const shading = "Shading Report produced by Aurora Solar Design 1 Shading Heatmap", sim = "Annual Production Report produced by Aurora";
+  assert.equal(suggestSlot(shading, "Design 1, 5L Shading Heatmap Shading by Field Segment"), "shadow");
+  assert.equal(suggestSlot(shading, "Solar Access by Month Southeastern Angle"), null);
+  assert.equal(suggestSlot(sim, "Detailed Layout2"), "site");
+  assert.equal(suggestSlot(sim, "Report Project Location System Metrics"), null);
+});

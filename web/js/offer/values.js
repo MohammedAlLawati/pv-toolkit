@@ -10,10 +10,12 @@ export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 const PROFILE = [482.8, 500.1, 604.7, 662.3, 714.4, 687.8, 684.1, 661.3, 624.3, 587.7, 487.9, 448.3];
 const PROFILE_SUM = PROFILE.reduce((a, b) => a + b, 0);
 
-// Greenhouse-gas equivalents per kWh, from the figures HTC's template used
-// (7,145,700 kWh/yr = 4,803 t CO2 = 224 houses = 540,210 gallons = 1,130 cars = 79,382 seedlings).
-const PER_KWH = { co2_t: 4803 / 7145700, homes: 224 / 7145700, gallons: 540210 / 7145700,
-                  cars: 1130 / 7145700, seedlings: 79382 / 7145700 };
+// Greenhouse-gas equivalents per kWh, from HTC's "EPA Calc" spreadsheet (factors taken from
+// the US EPA greenhouse gas equivalencies calculator; homes are divided by 3 for Omani houses).
+// The spreadsheet estimates energy as kWp × 1,650; here they apply to the project's own
+// annual generation.
+const PER_KWH = { co2_t: 0.0006989231479, homes: 0.00009111855886 / 3, gallons: 0.0786072582,
+                  cars: 0.0001662887377, seedlings: 0.01155186461 };
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 
@@ -38,7 +40,11 @@ export function compass(az) {
   return names[Math.round((((az % 360) + 360) % 360) / 45) % 8];
 }
 
-/** Year-by-year energy (kWh), savings and cumulative cash flow (OMR) over 25 years. */
+/**
+ * Year-by-year energy (kWh), savings and cumulative cash flow (OMR) over 25 years.
+ * ROI = average yearly savings ÷ price (simple return, no discounting). Provisional:
+ * agreed to keep for now and check against HTC's own offers at QC.
+ */
 export function cashFlow(p, annualKwh) {
   const d = (isNum(p.degradation_pct) ? p.degradation_pct : 0.65) / 100;
   const tariff = (isNum(p.tariff_bz) ? p.tariff_bz : 32) / 1000; // OMR per kWh
@@ -124,4 +130,11 @@ export function buildOfferValues(p, today = new Date()) {
     S_topo: s(inv.topology), S_ip: s(inv.ip_rating), S_dims: s(inv.dimensions), S_wti: s(fmtG(inv.weight_kg)),
   });
   return { values: v, months, estimated, flow, annual, dc, ac };
+}
+
+/** Labels of the fields an offer deck still needs; [] when it can be made in full. */
+export function offerMissing(p) {
+  return [[p.client, "Client"], [p.module, "PV module"], [p.module_count, "Number of modules"],
+    [p.inverter, "Inverter"], [p.annual_gen_kwh || p.monthly_kwh, "Annual generation"], [p.subtotal_omr, "Price (subtotal)"]]
+    .filter(([v]) => v === null || v === undefined || v === "" || v === 0).map(([, label]) => label);
 }

@@ -279,7 +279,14 @@ The column is added automatically on startup.
 | **3** | Yield simulation (pvlib + PVGIS TMY, losses) and a PVsyst-style PDF report, locked behind the rules check | |
 | 4 | Satellite layout ("maximise area") with Esri imagery (free) or Google (needs billing); multiple POCs per site; transformer checks (C&I spare capacity, utility MV step-up) | |
 | 5 | Consumption-CSV design approach | |
-| 6 | Offer deck generator from `source_templates/EPC_Offer_Template.pptx` | |
+| 6 | Offer deck generator from `source_templates/EPC_Offer_Template.pptx` | ✅ static app, Offer decks page |
+
+**To check at QC (offer decks):**
+- **ROI** is average yearly savings ÷ price, with no discounting (`cashFlow` in
+  `web/js/offer/values.js`). Kept for now on Mohammed's say-so; compare with HTC's own offers.
+- **Environmental equivalents** use the factors in HTC's "EPA Calc" spreadsheet (from the US EPA
+  equivalencies calculator, homes ÷ 3), applied to the project's annual generation rather than
+  the spreadsheet's kWp × 1,650.
 
 **Phase 2 scope (sizing engine):**
 - **Auto-recommend** a design: string length range, strings per MPPT, number of inverters,

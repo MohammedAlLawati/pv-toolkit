@@ -5,7 +5,7 @@ import { CONNECTION_TYPES, MOUNTING_TYPES, PREMISES_TYPES, PROJECT_STATUSES } fr
 import { inverterLabel, moduleLabel } from "../equipment_fields.js";
 import { DOCS, missingFields } from "../docgen/context.js";
 import { generate, generateOffer, generatePack } from "../docgen/generate.js";
-import { parseMonthly } from "../offer/values.js";
+import { offerMissing, parseMonthly } from "../offer/values.js";
 import { blocked, fails, unknown, warnings } from "../sizing/engine.js";
 import { inverterOptions, moduleOptions, partyOptions } from "../options.js";
 import { pill } from "./sizing.js";
@@ -345,9 +345,7 @@ export async function view(main, { params }) {
   }));
   const issues = [...fails(r), ...unknown(r), ...warnings(r)].slice(0, 6);
   const packKeys = ["initial", "agency", ...(blockDesign ? [] : ["design"])];
-  const offerMissing = [[p.client, "Client"], [p.module, "PV module"], [p.module_count, "Number of modules"],
-    [p.inverter, "Inverter"], [p.annual_gen_kwh || p.monthly_kwh, "Annual generation"], [p.subtotal_omr, "Price (subtotal)"]]
-    .filter(([v]) => v === null || v === undefined || v === "" || v === 0).map(([, label]) => label);
+  const offerMiss = offerMissing(p);
 
   main.innerHTML = html`
 <div class="head">
@@ -385,8 +383,8 @@ export async function view(main, { params }) {
     <p class="small muted">Missing fields are left blank in the document so you can still print and fill by hand. Open the Word file and use File › Save as PDF if you need a PDF.</p>
     <div class="doc">
       <div><b>Techno-commercial offer (PowerPoint)</b>
-        ${offerMissing.length ? html`<div class="missing">Still needs: ${offerMissing.join(", ")}</div>` : html`<div class="ready">All fields filled${p.monthly_kwh ? "" : " (monthly energy estimated from the annual figure)"}</div>`}</div>
-      <div class="btns"><button class="btn small" id="offer">PowerPoint</button></div>
+        ${offerMiss.length ? html`<div class="missing">Still needs: ${offerMiss.join(", ")}</div>` : html`<div class="ready">All fields filled${p.monthly_kwh ? "" : " (monthly energy estimated from the annual figure)"}</div>`}</div>
+      <div class="btns"><a class="btn small" href="#/offers/${p.id}">Preview</a><button class="btn small" id="offer">PowerPoint</button></div>
     </div>
     <p><a class="btn" href="#/letters/new?project_id=${p.id}">Write a letter (e.g. to NEDC)</a></p>
     <p><button class="btn sun" id="pack">Download NAMA submission pack (.zip)</button></p>
