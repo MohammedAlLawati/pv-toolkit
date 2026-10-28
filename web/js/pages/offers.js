@@ -1,5 +1,5 @@
 // Offer decks: the techno-commercial PowerPoint, either as a quick offer (client, capacities,
-// price, pictures or a Helioscope report) or from a full project, with a preview of the
+// price, and pictures typed in or taken from Helioscope reports) or from a full project, with a preview of the
 // figures that go into it. The deck itself is filled in js/offer/ (see generateOffer).
 import { download, fileUrl, float, g, go, html, num, readImage, shortDate, str, toast } from "../ui.js";
 import * as db from "../store.js";
@@ -207,7 +207,7 @@ export async function quick(main, { params, query }) {
     const f = await db.getFile(o[key]);
     pics[key] = f ? { id: f.id, url: fileUrl(f) } : null;
   }
-  const report = { found: null, images: [], pages: [] };
+  const report = { images: [], pages: [] };
 
   main.innerHTML = html`
 <div class="head">
@@ -229,9 +229,9 @@ export async function quick(main, { params, query }) {
   </div>
 
   <div class="panel">
-    <div class="panel-head"><h2>Helioscope report <span class="muted small">(optional)</span></h2></div>
-    <label>PDF report <span class="hint">Fills in the capacities, generation and equipment it names, and lets you pick pictures out of it</span>
-      <input type="file" id="report" accept="application/pdf"></label>
+    <div class="panel-head"><h2>Helioscope reports <span class="muted small">(optional)</span></h2></div>
+    <label>PDF reports <span class="hint">Choose the simulation and shading reports together. The layout and shading heatmap go on their slides; any other picture can be picked or cropped</span>
+      <input type="file" id="report" accept="application/pdf" multiple></label>
     <div id="report-out"></div>
   </div>
 
@@ -304,11 +304,6 @@ export async function quick(main, { params, query }) {
       ${figures(p, source ? ENERGY_NOTE[source] : "")}`;
   }
 
-  function setField(name, value) {
-    const el = form.elements[name];
-    if (el && value !== null && value !== undefined) el.value = typeof value === "number" ? g(value) : value;
-  }
-
   // pictures
   function drawPics() {
     main.querySelector("#pics").innerHTML = html`${IMAGE_KEYS.map(([key, label, hint]) => {
@@ -337,40 +332,45 @@ export async function quick(main, { params, query }) {
   }
   const slotButtons = (attr, i) => html`${IMAGE_KEYS.map(([key]) => html`<button type="button" class="btn small" data-${attr}="${i}" data-slot="${key}">${SLOT_NAMES[key]}</button>`)}`;
 
-  // Helioscope report
+  // Helioscope reports: pictures only (the simulation and the shading report, usually)
+  const KIND_NAMES = { simulation: "Simulation report", shading: "Shading report", report: "Report" };
+  const SUGGESTED = { site: "offer_site_file_id", shadow: "offer_shadow_file_id" };
   function drawReport() {
     const out = main.querySelector("#report-out");
-    const f = report.found;
-    if (!f) { out.innerHTML = ""; return; }
-    const said = [f.dc_kwp && `${num(f.dc_kwp)} kWp DC`, f.ac_kw && `${num(f.ac_kw)} kW AC`, f.annual_gen_kwh && `${num(f.annual_gen_kwh, 0)} kWh a year`,
-      f.module_id && "the module", f.inverter_id && "the inverter"].filter(Boolean);
+    if (!report.pages.length) { out.innerHTML = ""; return; }
     out.innerHTML = html`
-      <div class="flash ${said.length ? "ok" : "warn"} spaced-top">${said.length ? `Filled in from the report: ${said.join(", ")}.` : "No system figures found in the report's text; fill them in by hand."}</div>
-      ${report.images.length ? html`<h3>Pictures in the report</h3><p class="small muted">Click a slot under a picture to use it.</p>
-      <div class="thumbs">${report.images.map((im, i) => html`<div class="thumb"><img src="${im.url}" alt=""><span class="small muted">Page ${im.page} · ${im.width}×${im.height}</span><div class="btns">${slotButtons("img", i)}</div></div>`)}</div>` : ""}
-      <h3>Pages</h3><p class="small muted">Crop a page to take the layout or shading view from it.</p>
-      <div class="thumbs">${report.pages.map((pg, i) => html`<div class="thumb"><img src="${pg.url}" alt=""><span class="small muted">Page ${pg.page}</span><div class="btns"><button type="button" class="btn small" data-crop="${i}">Crop…</button></div></div>`)}</div>`;
+      ${report.images.length ? html`<h3>Pictures in the reports</h3><p class="small muted">Click a slot under a picture to use it.</p>
+      <div class="thumbs">${report.images.map((im, i) => html`<div class="thumb"><img src="${im.url}" alt=""><span class="small muted">${KIND_NAMES[im.kind]}, page ${im.page}</span><div class="btns">${slotButtons("img", i)}</div></div>`)}</div>` : ""}
+      <h3>Pages</h3><p class="small muted">Crop a page for a picture that isn't listed above, e.g. a 3D angle view for the structure slide.</p>
+      <div class="thumbs">${report.pages.map((pg, i) => html`<div class="thumb"><img src="${pg.url}" alt=""><span class="small muted">${KIND_NAMES[pg.kind]}, page ${pg.page}</span><div class="btns"><button type="button" class="btn small" data-crop="${i}">Crop…</button></div></div>`)}</div>`;
     for (const b of out.querySelectorAll("[data-img]")) {
-      b.addEventListener("click", () => { const im = report.images[Number(b.dataset.img)]; setPic(b.dataset.slot, { ...im, url: null, name: `report-p${im.page}.jpg` }); toast("Picture set."); });
+      b.addEventListener("click", () => { const im = report.images[Number(b.dataset.img)]; setPic(b.dataset.slot, { ...im, url: null, name: `${im.kind}-p${im.page}.jpg` }); toast("Picture set."); });
     }
     for (const b of out.querySelectorAll("[data-crop]")) b.addEventListener("click", () => openCrop(report.pages[Number(b.dataset.crop)]));
   }
 
   main.querySelector("#report").addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = [...e.target.files];
+    if (!files.length) return;
     const out = main.querySelector("#report-out");
-    out.innerHTML = html`<div class="small muted spaced-top" id="report-progress">Opening the report…</div>`;
+    out.innerHTML = html`<div class="small muted spaced-top" id="report-progress">Opening the reports…</div>`;
     try {
-      const { readReport, parseReport } = await import("../offer/helioscope.js");
-      const r = await readReport(file, (msg) => { const el = main.querySelector("#report-progress"); if (el) el.textContent = msg; });
-      report.images = r.images.map((im) => ({ ...im, url: URL.createObjectURL(im.blob) }));
-      report.pages = r.pages.map((pg) => ({ ...pg, url: URL.createObjectURL(pg.blob) }));
-      report.found = parseReport(r.text, { modules: all.modules, inverters: all.inverters });
-      const f = report.found;
-      for (const k of ["dc_kwp", "ac_kw", "annual_gen_kwh", "specific_yield", "module_id", "inverter_id"]) setField(k, f[k]);
+      const { readReport } = await import("../offer/helioscope.js");
+      report.images = []; report.pages = [];
+      const set = [];
+      for (const file of files) {
+        const r = await readReport(file, (msg) => { const el = main.querySelector("#report-progress"); if (el) el.textContent = msg; });
+        report.images.push(...r.images.map((im) => ({ ...im, kind: r.kind, url: URL.createObjectURL(im.blob) })));
+        report.pages.push(...r.pages.map((pg) => ({ ...pg, kind: r.kind, url: URL.createObjectURL(pg.blob) })));
+      }
+      // fill empty slots with the usual pictures: the detailed layout and the shading heatmap
+      for (const [slot, key] of Object.entries(SUGGESTED)) {
+        const im = report.images.find((x) => x.slot === slot);
+        if (im && !pics[key]) { pics[key] = { ...im, url: null, name: `${im.kind}-p${im.page}.jpg` }; set.push(SLOT_NAMES[key].toLowerCase()); }
+      }
+      drawPics();
       drawReport();
-      preview();
+      if (set.length) toast(`Set the ${set.join(" and ")} picture${set.length > 1 ? "s" : ""} from the reports. Change them below if needed.`);
     } catch (err) {
       console.error(err);
       out.innerHTML = html`<div class="flash error spaced-top">Couldn't read that PDF: ${err.message || err}</div>`;
@@ -382,7 +382,7 @@ export async function quick(main, { params, query }) {
     const box = main.querySelector("#crop");
     box.hidden = false;
     box.innerHTML = html`<div class="crop-card">
-      <div class="panel-head"><b>Page ${pg.page}: drag over the part you want</b><button type="button" class="btn small" id="crop-close">Cancel</button></div>
+      <div class="panel-head"><b>${KIND_NAMES[pg.kind]}, page ${pg.page}: drag over the part you want</b><button type="button" class="btn small" id="crop-close">Cancel</button></div>
       <div class="crop-stage"><img src="${pg.url}" alt="" draggable="false"><div class="crop-sel" hidden></div></div>
       <div class="btns spaced-top"><span class="small muted">Use as:</span>${slotButtons("use", 0)}</div></div>`;
     const stage = box.querySelector(".crop-stage"), img = stage.querySelector("img"), selBox = stage.querySelector(".crop-sel");
@@ -403,7 +403,7 @@ export async function quick(main, { params, query }) {
         const k = pg.width / img.getBoundingClientRect().width;
         const r = rect && rect.w > 8 && rect.h > 8 ? { x: rect.x * k, y: rect.y * k, w: rect.w * k, h: rect.h * k } : { x: 0, y: 0, w: pg.width, h: pg.height };
         const { crop } = await import("../offer/helioscope.js");
-        setPic(b.dataset.slot, { ...(await crop(pg.blob, r)), name: `report-p${pg.page}-crop.jpg` });
+        setPic(b.dataset.slot, { ...(await crop(pg.blob, r)), name: `${pg.kind}-p${pg.page}-crop.jpg` });
         box.hidden = true; box.innerHTML = "";
         toast("Picture set.");
       });

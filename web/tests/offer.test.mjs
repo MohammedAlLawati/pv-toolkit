@@ -132,13 +132,11 @@ test("quick offer: capacities, price and a client name make a whole deck", async
   assert.ok(text.includes("Al Noor Trading"));
 });
 
-test("Helioscope report text: system figures and named equipment", async () => {
-  const { parseReport } = await import("../js/offer/helioscope.js");
-  const text = `System Metrics Design Design 1 Module DC Nameplate 148.2 kWp Inverter AC Nameplate 125.0 kW Load Ratio: 1.19
-    Annual Production 245.6 MWh Performance Ratio 80.1% kWh/kWp 1,657.2 Weather Dataset TMY, 10km grid
-    Components Inverters SG125CX-P2 (Sungrow) 1 (125.0 kW) Module Jinko Solar, JKM620N-78HL4-BDV (620W) 239 (148.2 kW)`;
-  const f = parseReport(text, { modules: [{ id: 1, model: "JKM620N-78HL4-BDV" }, { id: 2, model: "JKM620N" }],
-                                inverters: [{ id: 5, model: "SG125CX-P2" }, { id: 6, model: "SG150CX" }] });
-  assert.deepEqual(f, { dc_kwp: 148.2, ac_kw: 125, annual_gen_kwh: 245600, specific_yield: 1657.2, module_id: 1, inverter_id: 5 });
-  assert.deepEqual(parseReport("Module DC Nameplate 1.25 MWp Annual Production 2,010.5 MWh"), { dc_kwp: 1250, annual_gen_kwh: 2010500 });
+test("Helioscope pictures: which slot they suit", async () => {
+  const { suggestSlot } = await import("../js/offer/helioscope.js");
+  const shading = "Shading Report produced by Aurora Solar Design 1 Shading Heatmap", sim = "Annual Production Report produced by Aurora";
+  assert.equal(suggestSlot(shading, "Design 1, 5L Shading Heatmap Shading by Field Segment"), "shadow");
+  assert.equal(suggestSlot(shading, "Solar Access by Month Southeastern Angle"), null);
+  assert.equal(suggestSlot(sim, "Detailed Layout2"), "site");
+  assert.equal(suggestSlot(sim, "Report Project Location System Metrics"), null);
 });
