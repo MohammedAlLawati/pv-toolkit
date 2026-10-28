@@ -287,6 +287,17 @@ The column is added automatically on startup.
 - **Environmental equivalents** use the factors in HTC's "EPA Calc" spreadsheet (from the US EPA
   equivalencies calculator, homes ÷ 3), applied to the project's annual generation rather than
   the spreadsheet's kWp × 1,650.
+- **Monthly generation** is read off the pixels of the Helioscope "Monthly Production" bar chart
+  and scaled to the report's annual figure (the 12 numbers aren't in the PDF's text). Within
+  about 1% of the shading report's scanned AC Power row on the sample.
+- **3D views for slide 17** are cut from the shading report's scanned page 2 by finding the
+  panels' grey rule lines (`scannedPanels` in `web/js/offer/helioscope.js`). Check on a few more
+  reports; any picture can be replaced by hand on the form.
+- **Degradation** comes from the module's linear power warranty (Tiger Neo: 1% in year 1,
+  then 0.40% a year), applied linearly from year 2; year 1 is the simulated figure. Modules
+  without these figures in the library fall back to one yearly figure (0.65%, compounded).
+  The 620 Wp Tiger Neo's figures are assumed equal to the 66HL5 datasheet's until its own is in.
+- **Structure height** isn't in the reports, so slide 17 reads "Height: m" until it's typed in.
 
 **Phase 2 scope (sizing engine):**
 - **Auto-recommend** a design: string length range, strings per MPPT, number of inverters,
