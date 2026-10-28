@@ -26,8 +26,9 @@ const ROUTES = [
   ["/parties/new", "parties", "form", "parties"],
   ["/parties/:id", "parties", "form", "parties"],
   ["/settings", "settings", "settings", "settings"],
-  ["/letters", "letters", "list", "letters"],
-  ["/letters/*", "letters", "route", "letters"],
+  ["/documents", "documents", "documents", "documents"],
+  ["/letters", "letters", "list", "documents"],
+  ["/letters/*", "letters", "route", "documents"],
 ];
 
 function match(path) {
