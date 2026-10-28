@@ -69,9 +69,9 @@ async function offerImages(p) {
 export async function generateOffer(p) {
   const { renderPptx } = await import("../offer/pptx.js");
   const { buildOfferValues } = await import("../offer/values.js");
-  const { values, months, flow, estimated } = buildOfferValues(p);
+  const { values, months, flow, estimated, subsystems } = buildOfferValues(p);
   const out = await renderPptx(await template("offer_deck.pptx"), {
-    values, months, flow,
+    values, months, flow, subsystems,
     moduleModel: p.module?.model || "", inverterModel: p.inverter?.model || "",
     schedule: p.schedule || null,
     images: await offerImages(p),

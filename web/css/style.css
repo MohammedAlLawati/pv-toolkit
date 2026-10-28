@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 :root {
   --ink: #17202b;
   --ink-2: #4a5666;
@@ -266,14 +267,32 @@ h3 { font-size: 13px; margin: 14px 0 2px; }
 
 /* quick offer form: editable schedule (Gantt) */
 .gantt { overflow-x: auto; font-size: 12px; }
-.g-row { display: grid; grid-template-columns: 24px minmax(180px, 1fr) 54px 54px minmax(480px, 2.4fr); gap: 6px; align-items: center; padding: 2px 0; min-width: 820px; }
+.g-row { display: grid; grid-template-columns: 24px minmax(180px, 1fr) 54px 54px minmax(480px, 2.4fr) 30px; gap: 6px; align-items: center; padding: 2px 0; min-width: 860px; }
 .g-row input { width: 100%; font: inherit; padding: 3px 5px; }
+.g-row .btn { padding: 2px 8px; }
 .g-head { font-weight: 600; color: var(--ink-3); }
-.g-weeks { display: grid; grid-template-columns: repeat(40, 1fr); height: 20px; touch-action: none; user-select: none; }
-.g-head .g-weeks b { font-size: 10.5px; text-align: center; border-left: 1px solid var(--line); }
-.g-weeks i { border-left: 1px solid var(--line); cursor: pointer; }
-.g-weeks i.mend { border-right: 1px solid var(--line-2); }
+.g-weeks { display: grid; grid-template-columns: repeat(40, 1fr); height: 22px; touch-action: none; user-select: none;
+  background-image: linear-gradient(to right, var(--line-2) 1px, transparent 1px), linear-gradient(to right, var(--line) 1px, transparent 1px);
+  background-size: calc(100% / 10) 100%, calc(100% / 40) 100%; border-right: 1px solid var(--line-2); }
+.g-head .g-weeks { background: none; border: 0; }
+.g-head .g-weeks b { font-size: 10.5px; text-align: center; border-left: 1px solid var(--line-2); }
+.g-weeks i { cursor: pointer; margin: 4px 0; }
 .g-weeks i.on { background: var(--sun); }
+.g-weeks i.s { border-radius: 4px 0 0 4px; margin-left: 1px; }
+.g-weeks i.e { border-radius: 0 4px 4px 0; margin-right: 1px; }
+
+/* quick offer form: sub-systems, charts */
+.subsys input { width: 100%; font: inherit; padding: 3px 5px; min-width: 70px; }
+.subsys input.num { text-align: right; max-width: 90px; }
+.subsys tfoot th { border-top: 1px solid var(--line-2); }
+.chart { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--line); }
+.chart .zero { stroke: var(--ink-3); }
+.chart .tick, .chart .mark { font-size: 11px; fill: var(--ink-3); }
+.chart .mark { fill: var(--ink-2); font-weight: 600; }
+.chart rect.pos { fill: var(--sun); }
+.chart rect.neg { fill: var(--navy); opacity: .55; }
+.chart .marker { stroke: var(--ink-2); stroke-dasharray: 4 3; }
 details summary { cursor: pointer; font-weight: 600; }
 @media (max-width: 600px) {
   main { min-width: 0; }

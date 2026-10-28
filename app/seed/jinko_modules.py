@@ -7,6 +7,7 @@ _TN66 = dict(make="Jinko Solar", technology="N-type TOPCon bifacial, dual glass"
              power_tolerance="0~+3%", tc_voc_pct=-0.25, tc_isc_pct=0.045, tc_pmax_pct=-0.29,
              bifaciality=0.80, max_system_v=1500, max_fuse_a=35, length_mm=2384, width_mm=1303,
              thickness_mm=33, weight_kg=37.5, datasheet=TIGER_NEO_66HL5,
+             degradation_first_pct=1.0, degradation_annual_pct=0.40,
              notes="Ships with JK03M connectors (MC4 / MC4-EVO2 on request): fit matching "
                    "connectors at the inverter. Bifaciality 80 ± 5 %. NOCT not on the datasheet.")
 

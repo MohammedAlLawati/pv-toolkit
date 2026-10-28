@@ -64,7 +64,7 @@ const near = (a, b) => Math.abs(a - b) <= Math.max(0.5, 0.01 * b);
 
 /**
  * Figures from a report's text (simulation and/or shading report), whichever are found:
- * { dc_kwp, ac_kw, annual_gen_kwh, specific_yield, shading_loss_pct, module_count, inverter_qty,
+ * { dc_kwp, ac_kw, annual_gen_kwh, specific_yield, pr_pct, shading_loss_pct, module_count, inverter_qty,
  *   module_wp, module_model, inverter_model, tilt_deg, azimuth_deg, racking,
  *   module_id, inverter_id }. `library` = { modules, inverters } picks the models it names.
  */
@@ -77,6 +77,8 @@ export function parseReport(text, library = { modules: [], inverters: [] }) {
   if (m) out.ac_kw = scaled(m[1], m[2]);
   m = t.match(/Annual\s*Production\s*([\d,.]+)\s*(GWh|MWh|kWh)\b/i);
   if (m) out.annual_gen_kwh = Math.round(scaled(m[1], m[2]));
+  m = t.match(/Performance\s*Ratio\s*([\d.]+)\s*%/i);
+  if (m) out.pr_pct = Number(m[1]);
   m = t.match(/kWh\s*\/\s*kWp\s*([\d,.]+)/i);
   if (m) out.specific_yield = numberIn(m[1]);
   m = t.match(/\bShading\s*:+\s*([\d.]+)\s*%/i);

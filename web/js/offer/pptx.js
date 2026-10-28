@@ -5,8 +5,9 @@
 //   offer:ds_module:<model> / offer:ds_inverter:<model>  datasheet slides of one model
 //   offer:spec_module / offer:spec_inverter             generic spec tables (used otherwise)
 //   offer:needs:<image>                                  dropped when that image is missing
+//   offer:needs:subsystems                               dropped unless the system is split
 // Logos (p:pic with descr "logo:<key>") are moved to a corner of image <key>.
-// Schedule tables (a W1, W2, ... header row) are shaded from the activities' weeks.
+// Schedule tables (a W1, W2, ... header row) get one row per activity, shaded in its weeks.
 // Charts: chart1 monthly energy (MWh), chart2 25-year energy + loss, chart3 cumulative cash flow.
 import { replacePlaceholders } from "../docgen/render.js";
 
@@ -216,10 +217,14 @@ function setCellFill(doc, tc, filled, fillTemplate) {
   if (old) pr.replaceChild(next, old); else pr.appendChild(next);
 }
 
+const SCHEDULE_BOTTOM = 4650000; // EMU: schedule rows stay above the slide's footer
+
 /**
- * Fill the "Execution Schedule" tables: rows start with the activity number, the second
- * header row names the weeks (W1, W2, ...). `schedule` = [{ n, name, start, weeks }].
- * Returns the last week used on this slide's table (0 when the slide has no schedule).
+ * Fill the "Execution Schedule" tables: the second header row names the weeks (W1, W2, ...),
+ * and the activity rows (first cell a number) are rebuilt from `schedule` = [{ name, start, weeks }]:
+ * one row per activity that runs in this table's weeks, numbered in schedule order, shaded in
+ * its weeks. Rows get shorter (and their text smaller) when more activities have to fit.
+ * Returns the last week shaded on this slide (0 when the slide has no schedule).
  */
 export function fillSchedule(root, schedule) {
   let used = 0;
@@ -228,50 +233,99 @@ export function fillSchedule(root, schedule) {
     const weekRow = rows.find((r) => byTag(r, "a", "tc").some((tc) => /^W\d+$/.test(cellText(tc))));
     if (!weekRow) continue;
     const weeks = byTag(weekRow, "a", "tc").map((tc) => { const m = cellText(tc).match(/^W(\d+)$/); return m ? Number(m[1]) : null; });
-    let fillTemplate = null;
-    for (const r of rows) for (const tc of byTag(r, "a", "tc")) {
-      const pr = child(tc, "a", "tcPr");
-      const fill = pr && Array.from(pr.childNodes).filter((n) => n.namespaceURI === NS.a && (n.localName === "solidFill" || n.localName === "noFill")).pop();
-      if (!fillTemplate && fill?.localName === "solidFill" && r !== weekRow && rows.indexOf(r) > rows.indexOf(weekRow)) fillTemplate = fill;
+    const shown = weeks.filter((w) => w !== null), lo = Math.min(...shown), hi = Math.max(...shown);
+    const data = rows.slice(rows.indexOf(weekRow) + 1).filter((r) => /^\d+$/.test(cellText(byTag(r, "a", "tc")[0])));
+    const ownFill = (tc) => { const pr = child(tc, "a", "tcPr"); return pr && Array.from(pr.childNodes).filter((n) => n.namespaceURI === NS.a && (n.localName === "solidFill" || n.localName === "noFill")).pop(); };
+    const fillTemplate = data.flatMap((r) => byTag(r, "a", "tc").map(ownFill)).find((f) => f?.localName === "solidFill");
+    if (!data.length || !fillTemplate) continue;
+
+    const proto = data[0];
+    const protoH = Math.round(data.reduce((t, r) => t + Number(r.getAttribute("h")), 0) / data.length);
+    const acts = schedule.map((a, i) => ({ ...a, n: i + 1 }))
+      .filter((a) => a.weeks > 0 && a.start <= hi && a.start + a.weeks - 1 >= lo);
+    const frame = tbl.parentNode.parentNode.parentNode;
+    const xfrm = child(frame, "p", "xfrm");
+    const top = Number(child(xfrm, "a", "off").getAttribute("y"));
+    const headH = rows.slice(0, rows.indexOf(weekRow) + 1).reduce((t, r) => t + Number(r.getAttribute("h")), 0);
+    // room down to the footer, or to the first shape below the table's header (the template's note)
+    const x0 = Number(child(xfrm, "a", "off").getAttribute("x")), x1 = x0 + Number(child(xfrm, "a", "ext").getAttribute("cx"));
+    let bottom = SCHEDULE_BOTTOM;
+    for (const el of Array.from(frame.parentNode.childNodes)) {
+      if (el === frame || el.nodeType !== 1) continue;
+      const off = byTag(el, "a", "off")[0], ext = byTag(el, "a", "ext").find((e) => e.hasAttribute("cx"));
+      if (!off || !ext) continue;
+      const y = Number(off.getAttribute("y")), x = Number(off.getAttribute("x")), w = Number(ext.getAttribute("cx"));
+      if (y > top + headH && x < x1 && x + w > x0) bottom = Math.min(bottom, y);
     }
-    if (!fillTemplate) continue;
-    for (const r of rows.slice(rows.indexOf(weekRow) + 1)) {
-      const tcs = byTag(r, "a", "tc");
-      const no = cellText(tcs[0]);
-      if (!/^\d+$/.test(no)) continue;
-      // an activity left out of the schedule keeps its row, unshaded
-      const act = schedule.find((a) => String(a.n) === no) || { weeks: 0 };
-      if (act.name) setCellText(tcs[1], act.name);
+    const h = Math.min(protoH, Math.floor((bottom - top - headH) / Math.max(1, acts.length)));
+    const scale = Math.max(0.7, h / protoH);
+    for (const r of data) r.parentNode.removeChild(r);
+
+    for (const a of acts) {
+      const tr = proto.cloneNode(true);
+      tr.setAttribute("h", String(h));
+      const ext = child(tr, "a", "extLst");
+      if (ext) tr.removeChild(ext); // the template's row id must stay unique
+      const tcs = byTag(tr, "a", "tc");
+      setCellText(tcs[0], String(a.n));
+      setCellText(tcs[1], a.name || "");
+      if (scale < 0.95) {
+        for (const rpr of [...byTag(tr, "a", "rPr"), ...byTag(tr, "a", "endParaRPr")]) {
+          const sz = Number(rpr.getAttribute("sz"));
+          if (sz) rpr.setAttribute("sz", String(Math.round((sz * scale) / 50) * 50));
+        }
+      }
       tcs.forEach((tc, i) => {
         const w = weeks[i];
         if (w === null) return;
-        const on = act.weeks > 0 && w >= act.start && w < act.start + act.weeks;
+        const on = w >= a.start && w < a.start + a.weeks;
         setCellFill(root, tc, on, fillTemplate);
         if (on) used = Math.max(used, w);
       });
+      tbl.appendChild(tr);
     }
+    child(xfrm, "a", "ext").setAttribute("cy", String(byTag(tbl, "a", "tr").reduce((t, r) => t + Number(r.getAttribute("h")), 0)));
   }
   return used;
+}
+
+/**
+ * The sub-system table: the row holding {{SS_Name}} is copied once per sub-system
+ * ([{ name, desc, modules, dc, inverters, ac }], already formatted) and then removed.
+ */
+export function fillSubsystems(root, rows) {
+  for (const tr of byTag(root, "a", "tr")) {
+    if (!cellText(byTag(tr, "a", "tc")[0]).includes("{{SS_Name}}")) continue;
+    for (const r of rows) {
+      const copy = tr.cloneNode(true);
+      const tcs = byTag(copy, "a", "tc");
+      [r.name, r.desc, r.modules, r.dc, r.inverters, r.ac].forEach((text, i) => tcs[i] && setCellText(tcs[i], text ?? ""));
+      tr.parentNode.insertBefore(copy, tr);
+    }
+    tr.parentNode.removeChild(tr);
+    return;
+  }
 }
 
 // ---- the deck ----------------------------------------------------------------------------
 
 /** Which slides to keep, from their tags and the project's equipment and images. */
-export function keepSlide(tag, { moduleModel, inverterModel, images, dsModules, dsInverters }) {
+export function keepSlide(tag, { moduleModel, inverterModel, images, flags, dsModules, dsInverters }) {
   const [, kind, arg] = (tag || "").split(":");
   if (!tag.startsWith("offer:")) return true;
   if (kind === "ds_module") return arg === moduleModel;
   if (kind === "ds_inverter") return arg === inverterModel;
   if (kind === "spec_module") return !dsModules.has(moduleModel);
   if (kind === "spec_inverter") return !dsInverters.has(inverterModel);
-  if (kind === "needs") return !!images[arg];
+  if (kind === "needs") return !!images[arg] || !!flags?.[arg];
   return true;
 }
 
 /**
  * @param template ArrayBuffer of offer_deck.pptx
  * @param input { values, months (12 kWh or null), flow (from cashFlow or null),
- *                moduleModel, inverterModel, schedule ([{ n, name, start, weeks }] or null),
+ *                moduleModel, inverterModel, schedule ([{ name, start, weeks }] or null),
+ *                subsystems ([{ name, desc, modules, dc, inverters, ac }] as text, or none),
  *                images: { site, shadow, structure, structure2 }, each { bytes, ext, width, height, logoCorner? } }
  * @returns { bytes, missing }
  */
@@ -288,7 +342,9 @@ export async function renderPptx(template, input) {
   }
   const dsModules = new Set(tags.filter((t) => t.startsWith("offer:ds_module:")).map((t) => t.split(":")[2]));
   const dsInverters = new Set(tags.filter((t) => t.startsWith("offer:ds_inverter:")).map((t) => t.split(":")[2]));
-  const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, images, dsModules, dsInverters };
+  const subsystems = input.subsystems || [];
+  const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, images, dsModules, dsInverters,
+                flags: { subsystems: subsystems.length > 0 } };
 
   const lastWeek = input.schedule?.length ? Math.max(...input.schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0))) : null;
   for (let i = 0; i < slides.length; i++) {
@@ -301,6 +357,7 @@ export async function renderPptx(template, input) {
       if (Number.isFinite(firstWeek) && firstWeek > lastWeek) { await deck.dropSlide(s); continue; }
       fillSchedule(root, input.schedule);
     }
+    if (subsystems.length) fillSubsystems(root, subsystems);
     replacePlaceholders(root, input.values, missing, "a");
     await fillImages(deck, s.part, root, images);
   }

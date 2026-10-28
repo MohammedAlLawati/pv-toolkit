@@ -201,6 +201,7 @@ test("Helioscope report figures", async () => {
   assert.deepEqual([r.dc_kwp, r.ac_kw, r.annual_gen_kwh, r.specific_yield, r.shading_loss_pct], [579.6, 600, 986800, 1702.6, 0.2]);
   assert.deepEqual([r.module_count, r.module_wp, r.inverter_qty, r.module_id, r.inverter_id], [805, 720, 4, 1, 2]);
   assert.deepEqual([r.tilt_deg, r.azimuth_deg, r.racking], [5, 109, "Flush Mount"]);
+  assert.equal(r.pr_pct, 77.3);
   const shade = "Totals, weighted by kWp 805 579.6 kWp 2,199.5kWh/m 986.8 MWh 91.4% 96.5% 91.2%";
   assert.equal(parseReport(shade).shading_loss_pct, 3.5);
 });
@@ -212,4 +213,67 @@ test("Helioscope pictures: which slot they suit", async () => {
   assert.equal(suggestSlot(shading, "Solar Access by Month Southeastern Angle"), null);
   assert.equal(suggestSlot(sim, "Detailed Layout2"), "site");
   assert.equal(suggestSlot(sim, "Report Project Location System Metrics"), null);
+});
+
+test("degradation follows the module datasheet's linear warranty", async () => {
+  const { toProject } = await import("../js/offer/quick.js");
+  const module = { ...base.module, degradation_first_pct: 1, degradation_annual_pct: 0.4 };
+  const { values } = buildOfferValues({ ...base, module }, new Date("2026-03-05T00:00:00"));
+  assert.equal(values.Y1L, "0.0%");
+  assert.equal(values.Y2L, "1.0%");
+  assert.equal(values.Y25L, "10.2%");
+  assert.equal(values.Degradation, "1% in the first year and 0.4");
+  // a library entry loaded before the figures were recorded gets them from the built-in data
+  const old = { id: 3, make: "Jinko Solar", model: "JKM720N-66HL5-BDV", wp: 720 };
+  const p = toProject({ client_name: "X", module_id: 3, module_count: 10 }, { module: new Map([[3, old]]), inverter: new Map() });
+  assert.equal(p.module.degradation_first_pct, 1);
+  assert.equal(p.module.degradation_annual_pct, 0.4);
+});
+
+test("sub-systems: checked against the design, and a table slide in the deck", async () => {
+  const { toProject, subsystemIssues } = await import("../js/offer/quick.js");
+  const module = { ...base.module, id: 7, wp: 720 }, inverter = { ...base.inverter, id: 9, ac_kw: 150 };
+  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, inverter]]), client: new Map() };
+  const o = { client_name: "ADC", price_per_kwp: 300, module_id: 7, module_count: 805, inverter_id: 9, inverter_qty: 4, split_system: true,
+              subsystems: [{ name: "POC 1", desc: "East roof", modules: 435, inverters: 2 }, { name: "POC 2", desc: "West roofs", modules: 370, inverters: 2 }] };
+  assert.deepEqual(subsystemIssues(o, lookup), []);
+  const off = subsystemIssues({ ...o, subsystems: [{ ...o.subsystems[0] }, { ...o.subsystems[1], modules: 365, inverters: 1 }] }, lookup);
+  assert.equal(off.length, 2);
+  assert.match(off[0], /800 PV modules.*805: 5 \(3\.6 kWp\) short/);
+  assert.match(off[1], /3 inverters.*4: 1 \(150 kW AC\) short/);
+  assert.deepEqual(subsystemIssues({ ...o, split_system: false, subsystems: [] }, lookup), []);
+
+  const p = toProject(o, lookup);
+  const { values, months, flow, subsystems } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
+  const render = async (rows) => {
+    const out = await renderPptx(template, { values, months, flow, subsystems: rows, images: {}, moduleModel: module.model, inverterModel: inverter.model });
+    const zip = await JSZip.loadAsync(out.bytes);
+    let text = "";
+    for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) text += await zip.file(f).async("string");
+    return text;
+  };
+  const text = await render(subsystems);
+  assert.ok(text.includes("System Breakdown"));
+  for (const t of ["POC 1", "East roof", "435", "313.2", "POC 2", "266.4", "300", "579.6", "805", "600"]) assert.ok(text.includes(`>${t}<`), t);
+  assert.ok(!/\{\{SS_/.test(text));
+  assert.ok(!(await render([])).includes("System Breakdown"), "no slide when the system isn't split");
+});
+
+test("schedule rows follow the Gantt chart: added activities get rows", async () => {
+  const { DEFAULT_SCHEDULE } = await import("../js/offer/quick.js");
+  const many = [...DEFAULT_SCHEDULE.map((a) => ({ name: a.name, start: a.start, weeks: a.weeks })),
+    { name: "Snag list", start: 18, weeks: 2 }, { name: "Training", start: 19, weeks: 1 }, { name: "Extra works", start: 5, weeks: 3 }];
+  const { values, months, flow } = buildOfferValues(base, new Date("2026-03-05T00:00:00"));
+  const out = await renderPptx(template, { values, months, flow, images: {}, schedule: many, moduleModel: base.module.model, inverterModel: base.inverter.model });
+  const zip = await JSZip.loadAsync(out.bytes);
+  const slides = [];
+  for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) {
+    const x = await zip.file(f).async("string");
+    if (x.includes(">W1<") || x.includes(">W21<")) slides.push(x);
+  }
+  const first = slides.find((x) => x.includes(">W1<"));
+  for (const t of ["Snag list", "Training", "Extra works"]) assert.ok(first.includes(`>${t}<`), t);
+  assert.ok(first.includes(">11<"), "activities are numbered in order");
+  const ids = [...first.matchAll(/a16:rowId [^>]*val="(\d+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, "row ids stay unique");
 });
