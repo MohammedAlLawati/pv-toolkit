@@ -1,0 +1,35 @@
+# Publishes the static app in web/ to GitHub Pages. Runs only when started by hand
+# (Actions > Pages > Run workflow) until publishing is switched on for this repo.
+name: Pages
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Site files (the app only, no tests or node_modules)
+        run: |
+          mkdir _site
+          cp -r web/index.html web/icon.svg web/css web/js web/vendor web/templates web/data web/fonts _site/
+          [ -f web/letters.html ] && cp web/letters.html _site/ || true
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

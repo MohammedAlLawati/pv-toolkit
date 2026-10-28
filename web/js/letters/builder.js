@@ -246,7 +246,8 @@ async function toBytes(x) {
   if (x instanceof Uint8Array) return x;
   if (x instanceof ArrayBuffer) return new Uint8Array(x);
   if (typeof Blob !== "undefined" && x instanceof Blob) return new Uint8Array(await x.arrayBuffer());
-  if (x.data) return toBytes(x.data);  // a store record like { name, type, data }
+  if (x.blob) return toBytes(x.blob);  // a store.js file record { name, mime, blob }
+  if (x.data) return toBytes(x.data);
   return null;
 }
 
