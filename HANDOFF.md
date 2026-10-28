@@ -276,7 +276,7 @@ The column is added automatically on startup.
 | 1 | Login, clients, projects, NAMA forms, execution agreement | ✅ done |
 | 1.5 | Datasheet upload and reading, categories, Sungrow range, fixed checklist | ✅ done |
 | 2 | Sizing engine and rules check | ✅ done (21 Oct, see README) |
-| **3** | Yield simulation (pvlib + PVGIS TMY, losses) and a PVsyst-style PDF report, locked behind the rules check | |
+| 3 | Yield simulation (pvlib + PVGIS TMY, losses) and a PVsyst-style PDF report, locked behind the rules check | ✅ in the static app (`web/`, see README); checked against pvlib |
 | 4 | Satellite layout ("maximise area") with Esri imagery (free) or Google (needs billing); multiple POCs per site; transformer checks (C&I spare capacity, utility MV step-up) | |
 | 5 | Consumption-CSV design approach | |
 | 6 | Offer deck generator from `source_templates/EPC_Offer_Template.pptx` | ✅ static app, Offer decks page |

@@ -1,0 +1,50 @@
+/* Yield simulation pages and the printable report (pages/yield.js). */
+.btn.disabled { opacity: .45; cursor: not-allowed; }
+.steps { display: grid; gap: 10px; margin-top: 12px; }
+.steps .btn { margin-right: 4px; }
+#wpanel.drop .panel { outline: 2px dashed var(--sun); outline-offset: -6px; }
+
+.ychart { width: 100%; height: auto; display: block; margin: 4px 0 14px; }
+.ychart .grid { stroke: var(--line); stroke-width: 1; }
+.ychart .axis { stroke: var(--line-2); stroke-width: 1; }
+.ychart .tick { font-size: 11px; fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ychart .barm { fill: var(--sun); }
+.ychart .hit { fill: transparent; }
+.ychart .bar-g:hover .barm { fill: var(--sun-ink); }
+
+table.monthly td, table.monthly th { padding: 5px 8px; }
+table.monthly .total td { font-weight: 650; border-top: 2px solid var(--line-2); }
+table.losses { width: 100%; }
+table.losses td { padding: 4px 8px; vertical-align: top; }
+table.losses td:first-child { width: 86px; color: var(--err); }
+table.losses td.gain { color: var(--ok); }
+table.losses .milestone td { font-weight: 650; background: #f5f7fa; color: var(--ink); }
+.lbar { height: 4px; border-radius: 2px; background: var(--err); opacity: .55; margin-top: 3px; }
+.lbar.gain { background: var(--ok); }
+
+/* report */
+.report { display: grid; gap: 18px; }
+.rp-page { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 28px 32px; max-width: 210mm; }
+.rp-page h2 { margin-top: 18px; border-bottom: 2px solid var(--sun); padding-bottom: 4px; }
+.rp-title { font-size: 20px; margin: 10px 0 14px; }
+.rp-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font-size: 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.rp-head img { width: 100%; max-height: 90px; object-fit: contain; object-position: left; }
+.rp-kv { width: 100%; }
+.rp-kv th { text-align: left; color: var(--ink-3); font-weight: 500; width: 18%; padding: 4px 6px; vertical-align: top; }
+.rp-kv td { padding: 4px 6px; vertical-align: top; }
+.rp-page .summary { grid-template-columns: repeat(4, 1fr); }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff; }
+  .shell { display: block; }
+  .side, .no-print, .toast-wrap { display: none !important; }
+  main#view { padding: 0 !important; }
+  .report { display: block; }
+  .rp-page { border: 0; border-radius: 0; padding: 0; max-width: none; break-after: page; }
+  .rp-page:last-child { break-after: auto; }
+  .summary, table, .ychart { break-inside: avoid; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+table.monthly td, table.monthly th { white-space: nowrap; }
+.rp-page .summary b { font-size: 16px; }
