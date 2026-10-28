@@ -27,14 +27,15 @@ function up(el, test) {
   return cur;
 }
 
-/** w:t nodes of this paragraph only (not of text boxes nested inside it). */
-function directTextNodes(p) {
-  return byTag(p, "w", "t").filter((t) => up(t, (el) => isW(el, "p")) === p);
+/** Text nodes of this paragraph only (not of text boxes nested inside it). */
+function directTextNodes(p, ns) {
+  return byTag(p, ns, "t").filter((t) => up(t, (el) => el.namespaceURI === NS[ns] && el.localName === "p") === p);
 }
 
-export function replacePlaceholders(root, values, missing) {
-  for (const p of byTag(root, "w", "p")) {
-    const nodes = directTextNodes(p);
+/** Fill {{Placeholders}} in every paragraph; `ns` is "w" (Word) or "a" (DrawingML, PowerPoint). */
+export function replacePlaceholders(root, values, missing, ns = "w") {
+  for (const p of byTag(root, ns, "p")) {
+    const nodes = directTextNodes(p, ns);
     if (!nodes.length) continue;
     const texts = nodes.map((n) => n.textContent || "");
     const full = texts.join("");
@@ -61,7 +62,7 @@ export function replacePlaceholders(root, values, missing) {
     }
     nodes.forEach((n, i) => {
       n.textContent = texts[i];
-      n.setAttributeNS(XML_NS, "xml:space", "preserve");
+      if (ns === "w") n.setAttributeNS(XML_NS, "xml:space", "preserve");
     });
   }
 }

@@ -4,7 +4,8 @@ import { above11kw, acKw, byName, byUpdated, dcAcRatio, dcKwp, full, loadAll, pr
 import { CONNECTION_TYPES, MOUNTING_TYPES, PREMISES_TYPES, PROJECT_STATUSES } from "../lists.js";
 import { inverterLabel, moduleLabel } from "../equipment_fields.js";
 import { DOCS, missingFields } from "../docgen/context.js";
-import { generate, generatePack } from "../docgen/generate.js";
+import { generate, generateOffer, generatePack } from "../docgen/generate.js";
+import { parseMonthly } from "../offer/values.js";
 import { blocked, fails, unknown, warnings } from "../sizing/engine.js";
 import { inverterOptions, moduleOptions, partyOptions } from "../options.js";
 import { pill } from "./sizing.js";
@@ -53,6 +54,12 @@ export const NEW_PROJECT = {
   internal_transformer: false, mppt_layout: "", hv_connectors: false,
 };
 
+const OFFER_IMAGES = [
+  ["offer_site_file_id", "Proposed location", "Satellite / site picture. Blank = the layout image"],
+  ["offer_shadow_file_id", "Shadow analysis", "e.g. the Helioscope shading report. Blank drops that slide"],
+  ["offer_structure_file_id", "Mounting structure", "3D view or photo of the structure"],
+];
+
 const FLOATS = ["elevation_m", "project_area_m2", "latitude", "longitude", "tilt_deg", "azimuth_deg",
                 "annual_gen_kwh", "subtotal_omr"];
 const INTS = ["module_count", "strings", "inverter_qty"];
@@ -72,6 +79,7 @@ export async function form(main, { params, query }) {
   }
   const isNew = !p.id;
   const layout = await db.getFile(p.layout_file_id);
+  const offerFiles = Object.fromEntries(await Promise.all(OFFER_IMAGES.map(async ([key]) => [key, await db.getFile(p[key])])));
   const parties = byName(all.parties);
   const v = (k) => (p[k] === null || p[k] === undefined ? "" : p[k]);
   setTitle(isNew ? "New project" : p.name);
@@ -137,6 +145,8 @@ export async function form(main, { params, query }) {
         <label><input type="radio" name="internal_transformer" value="yes" ${chk(p.internal_transformer)}> Yes</label>
         <label><input type="radio" name="internal_transformer" value="no" ${chk(!p.internal_transformer)}> No</label></div></div>
       <label>Annual generation (kWh) <input name="annual_gen_kwh" value="${g(p.annual_gen_kwh)}" inputmode="decimal"><span class="hint">From PVsyst / Helioscope for now; calculated in Phase 3</span></label>
+      <label class="wide">Monthly generation, Jan to Dec (kWh) <textarea name="monthly_kwh" rows="2" placeholder="Paste the 12 monthly E_Grid values from PVsyst">${Array.isArray(p.monthly_kwh) ? p.monthly_kwh.map((x) => g(x)).join(" ") : ""}</textarea>
+        <span class="hint">Used for the offer deck's energy table and chart. Blank = the annual figure spread over a typical Oman year. When filled, the annual figure becomes their total</span></label>
     </div>
     <div class="live">
       <div><span>DC capacity</span><b id="live-dc">—</b></div>
@@ -176,6 +186,14 @@ export async function form(main, { params, query }) {
       <label>Agency contract date <input type="date" name="agency_date" value="${v("agency_date")}"><span class="hint">Blank = date of generation</span></label>
     </div>
     <p class="small muted spaced-top">The design form's "Documents Required" Yes / No / NA marks are kept exactly as in your template.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Offer deck pictures <span class="muted small">(optional)</span></h2>
+    <div class="fields">
+      ${OFFER_IMAGES.map(([key, label, hint]) => html`<label>${label} <span class="hint">${hint}</span><input type="file" name="${key}" accept="image/png,image/jpeg">
+        ${offerFiles[key] ? html`<img class="stamp-preview" src="${fileUrl(offerFiles[key])}" alt=""><span class="check"><input type="checkbox" name="remove_${key}"> Remove</span>` : ""}</label>`)}
+    </div>
   </div>
 
   <div class="panel"><label>Notes <textarea name="notes">${v("notes")}</textarea></label></div>
@@ -259,6 +277,22 @@ export async function form(main, { params, query }) {
     rec.agency_date = /^\d{4}-\d{2}-\d{2}$/.test(str(fd, "agency_date")) ? str(fd, "agency_date") : null;
     rec.notes = str(fd, "notes");
     rec.reference_code = str(fd, "reference_code").toUpperCase();
+    const monthlyRaw = str(fd, "monthly_kwh");
+    rec.monthly_kwh = monthlyRaw ? parseMonthly(monthlyRaw) : null;
+    if (monthlyRaw && !rec.monthly_kwh) { toast("Monthly generation needs exactly 12 numbers (Jan to Dec). Nothing was saved.", "error"); return; }
+    if (rec.monthly_kwh) rec.annual_gen_kwh = Math.round(rec.monthly_kwh.reduce((a, b) => a + b, 0));
+    for (const [key] of OFFER_IMAGES) {
+      const up = fd.get(key);
+      if (fd.get("remove_" + key) === "on" && rec[key]) { await db.delFile(rec[key]); rec[key] = null; }
+      if (up && up.size) {
+        try {
+          const img = await readImage(up);
+          const fid = await db.putFile(img.blob, up.name, { width: img.width, height: img.height, kind: "offer" });
+          if (rec[key]) await db.delFile(rec[key]);
+          rec[key] = fid;
+        } catch { toast(`${up.name} couldn't be read (PNG or JPG only); it wasn't saved.`, "error"); }
+      }
+    }
 
     const upload = fd.get("layout_image");
     if (fd.get("remove_layout") === "on" && rec.layout_file_id) {
@@ -311,6 +345,9 @@ export async function view(main, { params }) {
   }));
   const issues = [...fails(r), ...unknown(r), ...warnings(r)].slice(0, 6);
   const packKeys = ["initial", "agency", ...(blockDesign ? [] : ["design"])];
+  const offerMissing = [[p.client, "Client"], [p.module, "PV module"], [p.module_count, "Number of modules"],
+    [p.inverter, "Inverter"], [p.annual_gen_kwh || p.monthly_kwh, "Annual generation"], [p.subtotal_omr, "Price (subtotal)"]]
+    .filter(([v]) => v === null || v === undefined || v === "" || v === 0).map(([, label]) => label);
 
   main.innerHTML = html`
 <div class="head">
@@ -346,6 +383,11 @@ export async function view(main, { params }) {
         : html`<button class="btn small" data-doc="${d.key}">Word</button>`}</div>
     </div>`)}
     <p class="small muted">Missing fields are left blank in the document so you can still print and fill by hand. Open the Word file and use File › Save as PDF if you need a PDF.</p>
+    <div class="doc">
+      <div><b>Techno-commercial offer (PowerPoint)</b>
+        ${offerMissing.length ? html`<div class="missing">Still needs: ${offerMissing.join(", ")}</div>` : html`<div class="ready">All fields filled${p.monthly_kwh ? "" : " (monthly energy estimated from the annual figure)"}</div>`}</div>
+      <div class="btns"><button class="btn small" id="offer">PowerPoint</button></div>
+    </div>
     <p><a class="btn" href="#/letters/new?project_id=${p.id}">Write a letter (e.g. to NEDC)</a></p>
     <p><button class="btn sun" id="pack">Download NAMA submission pack (.zip)</button></p>
   </div>
@@ -388,6 +430,10 @@ ${p.notes ? html`<div class="panel"><h2>Notes</h2><div>${p.notes}</div></div>` :
     const { blob, filename } = await generate(btn.dataset.doc, p);
     download(blob, filename);
   })));
+  main.querySelector("#offer").addEventListener("click", (e) => busy(e.target, async () => {
+    const { blob, filename } = await generateOffer(p);
+    download(blob, filename);
+  }));
   main.querySelector("#pack").addEventListener("click", (e) => busy(e.target, async () => {
     const { blob, filename } = await generatePack(packKeys, p);
     download(blob, filename);
@@ -397,12 +443,17 @@ ${p.notes ? html`<div class="panel"><h2>Notes</h2><div>${p.notes}</div></div>` :
     let copyLayout = null;
     const lf = await db.getFile(layout_file_id);
     if (lf) copyLayout = await db.putFile(lf.blob, lf.name, { width: lf.width, height: lf.height, kind: "layout" });
-    const nid = await db.put("projects", { ...rest, name: `${raw.name} (copy)`, status: "draft", layout_file_id: copyLayout });
+    const copies = {};
+    for (const [key] of OFFER_IMAGES) {
+      const f = await db.getFile(raw[key]);
+      copies[key] = f ? await db.putFile(f.blob, f.name, { width: f.width, height: f.height, kind: "offer" }) : null;
+    }
+    const nid = await db.put("projects", { ...rest, ...copies, name: `${raw.name} (copy)`, status: "draft", layout_file_id: copyLayout });
     toast("Project duplicated. Change the client or details as needed.");
     go(`#/projects/${nid}/edit`);
   });
   main.querySelector("#delete").addEventListener("click", async () => {
-    await db.delFile(raw.layout_file_id);
+    for (const key of ["layout_file_id", ...OFFER_IMAGES.map(([k]) => k)]) await db.delFile(raw[key]);
     await db.del("projects", raw.id);
     toast("Project deleted.");
     go("#/projects");

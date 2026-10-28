@@ -51,3 +51,21 @@ export async function generatePack(keys, p) {
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
   return { blob, filename: docFilename("initial", p, "zip").replace("NAMA_Initial_Form_", "Submission_") };
 }
+
+/** The offer deck (PowerPoint) for a project. Returns { blob, filename, missing, estimated }. */
+export async function generateOffer(p) {
+  const { renderPptx } = await import("../offer/pptx.js");
+  const { buildOfferValues } = await import("../offer/values.js");
+  const { values, months, flow, estimated } = buildOfferValues(p);
+  const out = await renderPptx(await template("offer_deck.pptx"), {
+    values, months, flow,
+    moduleModel: p.module?.model || "", inverterModel: p.inverter?.model || "",
+    images: {
+      site: (await image(p.offer_site_file_id)) || (await image(p.layout_file_id)),
+      shadow: await image(p.offer_shadow_file_id),
+      structure: await image(p.offer_structure_file_id),
+    },
+  });
+  return { blob: new Blob([out.bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }),
+           filename: docFilename("initial", p, "pptx").replace("NAMA_Initial_Form_", "Offer_"), missing: out.missing, estimated };
+}
