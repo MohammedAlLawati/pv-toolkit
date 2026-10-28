@@ -90,3 +90,10 @@ test("no relationship points at a removed part", async () => {
   for (const m of ct.matchAll(/PartName="\/([^"]+)"/g)) if (!names.has(m[1])) broken.push("content type for " + m[1]);
   assert.deepEqual(broken, []);
 });
+
+test("offerMissing lists what the deck still needs", async () => {
+  const { offerMissing } = await import("../js/offer/values.js");
+  assert.deepEqual(offerMissing(base), []);
+  assert.deepEqual(offerMissing({ ...base, subtotal_omr: null, annual_gen_kwh: 0, monthly_kwh: null }),
+                   ["Annual generation", "Price (subtotal)"]);
+});

@@ -226,3 +226,10 @@ table.points td:first-child { width: 28px; }
 .inline { display: inline; }
 .file-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .danger-zone { margin-top: 10px; }
+
+/* offer deck page: monthly energy bars */
+.missing-text { color: var(--warn); }
+.bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; height: 140px; align-items: end; margin: 6px 0 10px; }
+.bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; text-align: center; }
+.bar i { display: block; background: var(--sun); border-radius: 3px 3px 0 0; min-height: 2px; }
+.bar span { font-size: 10.5px; color: var(--ink-3); margin-top: 3px; }

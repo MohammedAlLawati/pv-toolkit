@@ -125,3 +125,10 @@ export function buildOfferValues(p, today = new Date()) {
   });
   return { values: v, months, estimated, flow, annual, dc, ac };
 }
+
+/** Labels of the fields an offer deck still needs; [] when it can be made in full. */
+export function offerMissing(p) {
+  return [[p.client, "Client"], [p.module, "PV module"], [p.module_count, "Number of modules"],
+    [p.inverter, "Inverter"], [p.annual_gen_kwh || p.monthly_kwh, "Annual generation"], [p.subtotal_omr, "Price (subtotal)"]]
+    .filter(([v]) => v === null || v === undefined || v === "" || v === 0).map(([, label]) => label);
+}
