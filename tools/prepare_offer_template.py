@@ -10,6 +10,7 @@ The browser fills the result (web/js/offer/). This script:
   (a table of the library values, used when the template has no datasheet slides);
 - adds image slots (p:pic with descr "img:<key>") for the site, shadow and two structure (3D view)
   pictures, and tags the HTC logos that sit on them (descr "logo:<key>");
+- adds a sub-system breakdown slide after the design summary (tagged "offer:needs:subsystems");
 - turns the shadow slide's three paragraphs into {{ShadeP1..3}} (they change when shading is high);
 - replaces the CO2 picture with text and the cash-flow picture with a chart;
 - unlinks the charts from the original Excel file (the path named another client);
@@ -321,6 +322,50 @@ def spec_slide(pkg: Pkg, n: int, table_src, title: str, rows: list[tuple[str, st
     slide.find(q("p:cSld")).find(q("p:spTree")).append(gf)
 
 
+# The sub-system table: [header, width (in), placeholder]. The browser copies the {{SS_*}} row
+# once per sub-system and drops the slide when the system isn't split.
+SUBSYSTEM_COLS = [("Sub-system", 1.45, "{{SS_Name}}"), ("Description", 2.75, "{{SS_Desc}}"),
+                  ("PV modules", 1.15, "{{SS_Modules}}"), ("DC (kWp)", 1.2, "{{SS_DC}}"),
+                  ("Inverters", 1.15, "{{SS_Inverters}}"), ("AC (kW)", 1.2, "{{SS_AC}}")]
+SUBSYSTEM_TOTALS = ["Total", "", "{{SS_TotModules}}", "{{SS_TotDC}}", "{{SS_TotInverters}}", "{{SS_TotAC}}"]
+
+
+def subsystem_slide(pkg: Pkg, n: int) -> None:
+    """Turn a copy of the design summary slide into the sub-system breakdown table."""
+    slide = pkg.slide(n)
+    tag_slide(slide, "offer:needs:subsystems")
+    set_para(para_with(slide, "Design Summary"), "System Breakdown")
+    tbl = tables(slide)[0]
+    rows = tbl.findall(q("a:tr"))
+    head_tc, label_tc, value_tc = rows[0].findall(q("a:tc"))[0], *rows[1].findall(q("a:tc"))[:2]
+    rpr = first_rpr(value_tc)
+    grid = tbl.find(q("a:tblGrid"))
+    for gc in list(grid):
+        grid.remove(gc)
+    for _, w, _ in SUBSYSTEM_COLS:
+        etree.SubElement(grid, q("a:gridCol"), w=emu(w))
+    for tr in rows:
+        tbl.remove(tr)
+
+    def row(h, texts, first, rest):
+        tr = etree.SubElement(tbl, q("a:tr"), h=str(h))
+        for i, text in enumerate(texts):
+            tc = copy.deepcopy(first if i == 0 else rest)
+            for attr in ("gridSpan", "hMerge"):
+                tc.attrib.pop(attr, None)
+            cell_set(tc, text, rpr)
+            tr.append(tc)
+        return tr
+
+    row(rows[0].get("h"), [c[0] for c in SUBSYSTEM_COLS], head_tc, head_tc)
+    row(417935, [c[2] for c in SUBSYSTEM_COLS], label_tc, value_tc)
+    row(417935, SUBSYSTEM_TOTALS, label_tc, value_tc)
+    xfrm = tbl.getparent().getparent().getparent().find(q("p:xfrm"))
+    xfrm.find(q("a:off")).set("x", emu(0.5))
+    xfrm.find(q("a:ext")).set("cx", str(sum(int(emu(w)) for _, w, _ in SUBSYSTEM_COLS)))
+    xfrm.find(q("a:ext")).set("cy", str(sum(int(tr.get("h")) for tr in tbl.findall(q("a:tr")))))
+
+
 def copy_chart(pkg: Pkg, src: int, new: int) -> None:
     """Copy a chart with its own style and colour parts (PowerPoint expects one set per chart)."""
     pkg.put(f"ppt/charts/chart{new}.xml", pkg.parts[f"ppt/charts/chart{src}.xml"])
@@ -467,6 +512,8 @@ def build() -> None:
         tag_slide(pkg.slide(n), "offer:ds_inverter:SG150CX")
     for n in (24, 25):
         tag_slide(pkg.slide(n), "offer:ds_inverter:SG125CX-P2")
+    clone_slide(pkg, 15, 49, after_slide=15)
+    subsystem_slide(pkg, 49)
     clone_slide(pkg, 23, 47, after_slide=21)
     clone_slide(pkg, 23, 48, after_slide=25)
     spec_slide(pkg, 47, tbl15, "{{ModuleMake}} {{ModuleModel}} PV Module Specification from Manufacturer’s Datasheet",

@@ -8,9 +8,9 @@ import { byName, byUpdated, dcKwp, loadAll } from "../data.js";
 import { setTitle } from "../app.js";
 import { generateOffer } from "../docgen/generate.js";
 import { fmtOmr } from "../docgen/context.js";
-import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing, parseMonthly } from "../offer/values.js";
+import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing } from "../offer/values.js";
 import { DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD, annualKwh,
-  capacities, quickMissing, suggestCode, toProject } from "../offer/quick.js";
+  capacities, quickMissing, subsystemIssues, suggestCode, toProject } from "../offer/quick.js";
 import { inverterOptions, moduleOptions } from "../options.js";
 
 // [project field, label, what happens without it]
@@ -187,10 +187,11 @@ ${figures(p, estimated ? "Monthly figures are the annual figure spread over a ty
 
 // ---- quick offer: a few inputs -> the whole deck -----------------------------------------
 
-const ENERGY_NOTE = {
-  monthly: "Monthly figures as entered (or read off the Helioscope chart).",
-  annual: "Monthly figures are the annual figure spread over a typical Oman year.",
-  yield: "Estimated as DC capacity × specific yield, spread over a typical Oman year.",
+const ENERGY_SOURCE = {
+  helioscope: "From the Helioscope reports.",
+  annual: "Annual figure as entered; months follow a typical Oman year.",
+  monthly: "From the Helioscope reports.",
+  yield: "Estimated as DC capacity × specific yield. Add the Helioscope reports for the simulated figures.",
 };
 const KIND_NAMES = { simulation: "Simulation report", shading: "Shading report", report: "Report" };
 const CORNERS = [["tl", "↖", "Top left"], ["tr", "↗", "Top right"], ["bl", "↙", "Bottom left"], ["br", "↘", "Bottom right"]];
@@ -209,6 +210,55 @@ async function cornerOf(blob) {
   return quietCorner(ctx);
 }
 
+/** A step of 1, 2 or 5 × 10^n giving about `n` intervals over `span`. */
+function niceStep(span, n = 4) {
+  const raw = span / n, mag = 10 ** Math.floor(Math.log10(raw || 1));
+  return [1, 2, 5, 10].map((k) => k * mag).find((st) => st >= raw) || mag * 10;
+}
+
+/**
+ * A column chart (inline SVG): one bar per value, negatives below the zero line.
+ * `marker` draws a dashed line at a fractional position (e.g. the payback year).
+ */
+function columnChart(vals, { label = (i) => String(i + 1), every = 5, fmt = (v) => num(v, 0), marker = null, markerText = "" } = {}) {
+  const W = 640, H = 230, L = 64, R = 10, T = 12, B = 24;
+  const step = niceStep(Math.max(...vals, 0) - Math.min(...vals, 0) || 1);
+  const lo = Math.floor(Math.min(0, ...vals) / step) * step, hi = Math.ceil(Math.max(0, ...vals) / step) * step || step;
+  const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+  const bw = (W - L - R) / vals.length;
+  const ticks = [];
+  for (let t = lo; t <= hi + step / 2; t += step) ticks.push(t);
+  return raw(`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">
+    ${ticks.map((t) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join("")}
+    ${vals.map((v, i) => `<rect class="${v < 0 ? "neg" : "pos"}" x="${L + i * bw + bw * 0.15}" width="${bw * 0.7}" y="${Math.min(y(v), y(0))}" height="${Math.max(1, Math.abs(y(v) - y(0)))}"><title>${label(i)}: ${fmt(v)}</title></rect>`).join("")}
+    <line class="zero" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/>
+    ${vals.map((_, i) => (i === 0 || (i + 1) % every === 0 ? `<text class="tick" x="${L + (i + 0.5) * bw}" y="${H - 6}" text-anchor="middle">${label(i)}</text>` : "")).join("")}
+    ${marker !== null ? `<line class="marker" x1="${L + marker * bw}" x2="${L + marker * bw}" y1="${T}" y2="${H - B}"/><text class="mark" x="${L + marker * bw + 4}" y="${T + 10}">${markerText}</text>` : ""}
+  </svg>`);
+}
+
+/** Totals, payback and the environmental figures of the deck, under the form. */
+function deckSummary(p) {
+  const { values: v } = buildOfferValues(p);
+  return html`
+<div class="summary">
+  <div><span>System</span><b>${v.DCCapacity || "—"} kWp</b><small class="muted">${v.ACCapacity ? `${v.ACCapacity} kW AC` : ""}${v.DCACRatioPct ? ` · ${v.DCACRatioPct}%` : ""}</small></div>
+  <div><span>Price before VAT</span><b>${v.Subtotal ? `OMR ${v.Subtotal}` : "—"}</b><small class="muted">${v.OmrPerKwp ? `${v.OmrPerKwp} OMR/kWp` : ""}</small></div>
+  <div><span>Year 1 generation</span><b>${v.AnnualGenKWh ? `${v.AnnualGenKWh} kWh` : "—"}</b><small class="muted"></small></div>
+  <div><span>Payback · ROI</span><b>${v.PaybackText || "—"}</b><small class="muted">${v.ROI ? `ROI ${v.ROI}% a year` : ""}</small></div>
+</div>
+<div class="panel">
+  <h2>Environmental equivalents (per year)</h2>
+  <dl class="kv">
+    <dt>CO₂ avoided</dt><dd>${v.CO2Tonnes ? `${v.CO2Tonnes} t` : "—"}</dd>
+    <dt>Omani homes powered</dt><dd>${v.Homes || "—"}</dd>
+    <dt>Gas saved</dt><dd>${v.GasGallons ? `${v.GasGallons} gallons` : "—"}</dd>
+    <dt>Cars off the road</dt><dd>${v.Cars || "—"}</dd>
+    <dt>Tree seedlings (10 years)</dt><dd>${v.Seedlings || "—"}</dd>
+  </dl>
+</div>`;
+}
+
 export async function quick(main, { params, query }) {
   const all = await loadAll();
   let o;
@@ -219,7 +269,7 @@ export async function quick(main, { params, query }) {
     // older offers kept a total price and typed capacities
     if (!o.price_per_kwp && o.subtotal_omr && o.dc_kwp) o.price_per_kwp = Math.round((o.subtotal_omr / o.dc_kwp) * 1000) / 1000;
   } else {
-    o = { ...QUICK_DEFAULTS, logo_corners: {} };
+    o = { ...QUICK_DEFAULTS, logo_corners: {}, subsystems: [] };
     // start from the most recent offer's equipment and commercial settings
     const last = byUpdated(await db.list("offers"))[0];
     if (last) for (const k of ["module_id", "inverter_id", "installation_type", "tariff_bz", "degradation_pct", "specific_yield", "price_per_kwp"]) if (last[k] !== undefined) o[k] = last[k];
@@ -227,7 +277,8 @@ export async function quick(main, { params, query }) {
   }
   setTitle(params.id ? `Offer · ${o.client_name}` : "New offer");
   const designTypes = [...new Set([...DESIGN_TYPES, ...(await db.getSetting("design_types", [])), o.installation_type].filter(Boolean))];
-  const schedule = (o.schedule || DEFAULT_SCHEDULE).map((a) => ({ ...a }));
+  const schedule = (o.schedule || DEFAULT_SCHEDULE).map((a) => ({ name: a.name, start: a.start, weeks: a.weeks }));
+  const subsystems = (o.subsystems || []).map((r) => ({ ...r }));
   const corners = { ...(o.logo_corners || {}) };
   let codeEdited = !!o.reference_code && o.reference_code !== suggestCode(o.client_name);
 
@@ -241,11 +292,18 @@ export async function quick(main, { params, query }) {
 
   main.innerHTML = html`
 <div class="head">
-  <div><h1>${params.id ? o.client_name || "Offer" : "New offer"}</h1><div class="muted"><a href="#/offers">Offer decks</a> · fill in the essentials and add the Helioscope reports; the rest is worked out.</div></div>
+  <div><h1>${params.id ? o.client_name || "Offer" : "New offer"}</h1><div class="muted"><a href="#/offers">Offer decks</a> · start with the Helioscope reports; the rest is worked out and can be changed.</div></div>
   <div class="actions">${params.id ? html`<button class="btn danger small" id="delete" data-confirm="Delete this offer?">Delete</button>` : ""}
     <button class="btn" id="save">Save</button><button class="btn primary" id="deck">Save and download PowerPoint</button></div>
 </div>
 <form id="offer" class="quick" autocomplete="off">
+  <div class="panel">
+    <h2>Helioscope reports</h2>
+    <p class="small muted">Choose the simulation and shading reports together. They fill in the equipment and counts, the energy figures, the shading loss and the pictures for slides 14, 16 and 17. Anything they fill can be changed below.</p>
+    <input type="file" id="report" accept="application/pdf" multiple aria-label="Helioscope PDF reports">
+    <div id="report-found"></div>
+  </div>
+
   <div class="panel">
     <h2>Essentials</h2>
     <div class="fields">
@@ -271,13 +329,36 @@ export async function quick(main, { params, query }) {
       <label>Azimuth (°) <input name="azimuth_deg" value="${g(o.azimuth_deg)}" inputmode="decimal" placeholder="180 = south"></label>
     </div>
     ${!all.modules.length || !all.inverters.length ? html`<p class="small muted spaced-top">The equipment library is empty. <a href="#/library">Load the Jinko modules and Sungrow inverters</a> to pick them here.</p>` : ""}
+    <label class="check spaced-top"><input type="checkbox" name="split_system" ${o.split_system ? "checked" : ""}> Split into sub-systems (several POCs, orientations or roofs)</label>
+    <div id="subsystems"></div>
   </div>
 
   <div class="panel">
-    <h2>Helioscope reports</h2>
-    <label>PDF reports <span class="hint">Choose the simulation and shading reports together. They fill in the equipment, counts, energy and shading loss (all editable), and the pictures for slides 14, 16 and 17</span>
-      <input type="file" id="report" accept="application/pdf" multiple></label>
-    <div id="report-found"></div>
+    <h2>Energy</h2>
+    <div id="energy-summary"></div>
+    <div id="energy-chart" class="spaced-top"></div>
+    <details class="spaced-top"><summary class="small">Change the figures</summary>
+      <div class="fields spaced-top">
+        <label>Annual generation, year 1 (kWh) <input name="annual_gen_kwh" value="${g(o.annual_gen_kwh)}" inputmode="decimal"><span class="hint">Blank = DC × specific yield</span></label>
+        <label>Specific yield (kWh/kWp) <input name="specific_yield" value="${g(o.specific_yield)}" inputmode="decimal" placeholder="${SPECIFIC_YIELD}"></label>
+        <label>Performance ratio (%) <input name="pr_pct" value="${g(o.pr_pct)}" inputmode="decimal"></label>
+        <label>Shading losses (%) <input name="shading_loss_pct" value="${g(o.shading_loss_pct)}" inputmode="decimal"><span class="hint">Over ${SHADING_LIMIT_PCT}% is flagged on slide 16</span></label>
+      </div>
+    </details>
+  </div>
+
+  <div class="panel">
+    <h2>Payback</h2>
+    <div class="fields">
+      <label>Tariff (bz/kWh) <input name="tariff_bz" value="${g(o.tariff_bz)}" inputmode="decimal"><span class="hint">Values the energy produced</span></label>
+      <label id="deg-input">Yearly degradation (%) <input name="degradation_pct" value="${g(o.degradation_pct)}" inputmode="decimal"><span class="hint">This module's library entry has no degradation figures</span></label>
+      <div class="wide small" id="deg-note"></div>
+    </div>
+    <div id="payback-summary" class="spaced-top"></div>
+    <div class="grid2 spaced-top">
+      <div><h3>Cumulative cash flow (OMR)</h3><div id="chart-cash"></div></div>
+      <div><h3>Generation each year, after degradation (MWh)</h3><div id="chart-years"></div></div>
+    </div>
   </div>
 
   <div class="panel">
@@ -288,26 +369,12 @@ export async function quick(main, { params, query }) {
   </div>
 
   <div class="panel">
-    <h2>Energy</h2>
-    <div class="fields">
-      <label>Annual generation (kWh) <input name="annual_gen_kwh" value="${g(o.annual_gen_kwh)}" inputmode="decimal"><span class="hint">Blank = DC × specific yield</span></label>
-      <label>Specific yield (kWh/kWp) <input name="specific_yield" value="${g(o.specific_yield)}" inputmode="decimal" placeholder="${SPECIFIC_YIELD}"></label>
-      <label>Shading losses (%) <input name="shading_loss_pct" value="${g(o.shading_loss_pct)}" inputmode="decimal"><span class="hint">Over ${SHADING_LIMIT_PCT}% is flagged on slide 16</span></label>
-      <label>Tariff (bz/kWh) <input name="tariff_bz" value="${g(o.tariff_bz)}" inputmode="decimal"></label>
-      <label>Yearly degradation (%) <input name="degradation_pct" value="${g(o.degradation_pct)}" inputmode="decimal"></label>
-      <label class="wide">Monthly generation, Jan to Dec (kWh) <span class="hint">12 figures. Filled from the Helioscope chart; their total replaces the annual figure</span>
-        <textarea name="monthly_kwh" rows="2">${Array.isArray(o.monthly_kwh) ? o.monthly_kwh.map((x) => Math.round(x)).join(" ") : ""}</textarea></label>
-    </div>
-    <div id="energy-chart" class="spaced-top"></div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-head"><h2>Project schedule</h2><button type="button" class="btn small" id="sched-reset">Reset to the template</button></div>
+    <div class="panel-head"><h2>Project schedule</h2><span class="btns"><button type="button" class="btn small" id="sched-add">Add activity</button><button type="button" class="btn small" id="sched-reset">Reset to the template</button></span></div>
     <p class="small muted">Drag across a row to set when an activity runs, or type the start week and length. Weeks after the last activity are left off the deck.</p>
     <div class="gantt" id="gantt"></div>
   </div>
 </form>
-<h2 class="spaced-top">Preview</h2>
+<h2 class="spaced-top">Deck summary</h2>
 <div id="preview"></div>
 <div class="crop" id="crop" hidden></div>`;
 
@@ -317,7 +384,6 @@ export async function quick(main, { params, query }) {
   /** The form as an offer record (pictures and corners are added on save). */
   function read() {
     const fd = new FormData(form);
-    const monthlyRaw = str(fd, "monthly_kwh");
     const type = str(fd, "installation_type");
     return {
       ...o,
@@ -328,10 +394,10 @@ export async function quick(main, { params, query }) {
       inverter_id: Number(fd.get("inverter_id")) || null, inverter_qty: int(fd, "inverter_qty"),
       dc_kwp: pos(fd, "dc_kwp"), ac_kw: pos(fd, "ac_kw"),
       annual_gen_kwh: pos(fd, "annual_gen_kwh"), specific_yield: pos(fd, "specific_yield") ?? SPECIFIC_YIELD,
-      monthly_kwh: monthlyRaw ? parseMonthly(monthlyRaw) : null, monthly_raw_bad: !!monthlyRaw && !parseMonthly(monthlyRaw),
-      shading_loss_pct: float(fd, "shading_loss_pct"),
+      pr_pct: pos(fd, "pr_pct"), shading_loss_pct: float(fd, "shading_loss_pct"),
       tariff_bz: float(fd, "tariff_bz") ?? 32, degradation_pct: float(fd, "degradation_pct") ?? 0.65,
       elevation_m: pos(fd, "elevation_m"), tilt_deg: float(fd, "tilt_deg"), azimuth_deg: float(fd, "azimuth_deg"),
+      split_system: fd.get("split_system") === "on", subsystems: subsystems.map((r) => ({ ...r })),
       schedule: schedule.map((a) => ({ ...a })), logo_corners: { ...corners },
     };
   }
@@ -355,19 +421,105 @@ export async function quick(main, { params, query }) {
     main.querySelector("#ac-how").textContent = acIn.readOnly ? `${cur.inverter_qty} × ${g(inverter.ac_kw)} kW` : inverter ? "Enter the number of inverters" : "";
     main.querySelector("#total").textContent = p.subtotal_omr ? `Total OMR ${fmtOmr(p.subtotal_omr)} before VAT (${num(cur.price_per_kwp, 3)} × ${num(dc)} kWp)` : "Total = price × DC kWp";
     if (!codeEdited) form.elements.reference_code.value = suggestCode(cur.client_name);
+    drawSubTotals(cur);
 
-    const { values } = buildOfferValues(p);
-    const months = Array.from({ length: 12 }, (_, i) => Number(String(values[`M${i + 1}`] || "").replace(/,/g, "")));
-    main.querySelector("#energy-chart").innerHTML = months.every((m) => m > 0) ? monthlyBars(months).toString() : "";
+    const { values: v, months, flow } = buildOfferValues(p);
+    // energy: a summary of the simulated (or estimated) figures
+    const { kwh, source } = annualKwh(cur, dc);
+    const sy = kwh && dc ? kwh / dc : null;
+    main.querySelector("#energy-summary").innerHTML = html`
+      ${cur.shading_loss_pct > SHADING_LIMIT_PCT ? html`<div class="flash warn">Shading losses are ${num(cur.shading_loss_pct, 1)}%, above the ${SHADING_LIMIT_PCT}% limit. Slide 16 says so in place of the "minimal shading" wording.</div>` : ""}
+      <div class="summary">
+        <div><span>Generation, year 1</span><b>${kwh ? `${num(kwh / 1000, 1)} MWh` : "—"}</b><small class="muted">${kwh ? `${num(kwh, 0)} kWh` : ""}</small></div>
+        <div><span>Specific yield</span><b>${sy ? `${num(sy, 1)}` : "—"}</b><small class="muted">kWh/kWp a year</small></div>
+        <div><span>Performance ratio</span><b>${cur.pr_pct ? `${num(cur.pr_pct, 1)}%` : "—"}</b><small class="muted">${cur.pr_pct ? "" : "Not in the reports yet"}</small></div>
+        <div><span>Shading losses</span><b class="${cur.shading_loss_pct > SHADING_LIMIT_PCT ? "missing-text" : ""}">${cur.shading_loss_pct !== null && cur.shading_loss_pct !== undefined ? `${num(cur.shading_loss_pct, 1)}%` : "—"}</b><small class="muted">limit ${SHADING_LIMIT_PCT}%</small></div>
+      </div>
+      <p class="small muted">${source ? (cur.energy_source === "helioscope" && source !== "yield" ? ENERGY_SOURCE.helioscope : ENERGY_SOURCE[source]) : "Pick the module and number of panels, or add the reports."}</p>`;
+    main.querySelector("#energy-chart").innerHTML = months && Array.isArray(p.monthly_kwh) ? monthlyBars(months).toString() : "";
 
-    const missing = quickMissing(cur, all);
-    const { source } = annualKwh(cur, dc);
+    // payback
+    const deg = flow?.degradation;
+    const moduleDeg = p.module && Number.isFinite(p.module.degradation_first_pct);
+    main.querySelector("#deg-input").hidden = !!moduleDeg;
+    main.querySelector("#deg-note").innerHTML = moduleDeg
+      ? html`<b>Degradation:</b> ${num(deg.first, 2)}% in the first year, then ${num(deg.annual, 2)}% a year, from the ${p.module.model} datasheet (linear power warranty).`
+      : "";
+    const cum25 = flow?.years[24]?.cumulative;
+    main.querySelector("#payback-summary").innerHTML = html`<div class="summary">
+      <div><span>Year 1 savings</span><b>${v.AnnualSavings ? `OMR ${v.AnnualSavings}` : "—"}</b><small class="muted">at ${v.TariffBz} bz/kWh</small></div>
+      <div><span>Payback</span><b>${v.PaybackText || "—"}</b><small class="muted">${p.subtotal_omr ? "" : "Needs the price"}</small></div>
+      <div><span>ROI</span><b>${v.ROI ? `${v.ROI}%` : "—"}</b><small class="muted">average yearly savings ÷ price</small></div>
+      <div><span>Net after 25 years</span><b>${cum25 !== undefined && p.subtotal_omr ? `OMR ${num(cum25, 0)}` : "—"}</b><small class="muted"></small></div></div>`;
+    main.querySelector("#chart-cash").innerHTML = flow && p.subtotal_omr
+      ? columnChart(flow.years.map((y) => y.cumulative), { label: (i) => `Y${i + 1}`, marker: flow.payback, markerText: "Payback" }).toString()
+      : html`<div class="empty small">Needs the price and the generation.</div>`.toString();
+    main.querySelector("#chart-years").innerHTML = flow
+      ? columnChart(flow.years.map((y) => y.kwh / 1000), { label: (i) => `Y${i + 1}`, fmt: (x) => num(x, 0) }).toString()
+      : html`<div class="empty small">Needs the generation.</div>`.toString();
+
+    const missing = [...quickMissing(cur, all), ...(subsystemIssues(cur, all).length ? ["Sub-systems that add up to the design"] : [])];
     main.querySelector("#preview").innerHTML = html`
       ${missing.length ? html`<div class="flash warn">Still needs: ${missing.join(", ")}.</div>` : ""}
-      ${cur.monthly_raw_bad ? html`<div class="flash warn">Monthly generation needs exactly 12 numbers; it's ignored until then.</div>` : ""}
-      ${figures(p, source ? ENERGY_NOTE[source] : "")}`;
+      ${deckSummary(p)}`;
   }
 
+  // ---- sub-systems
+  const subBox = main.querySelector("#subsystems");
+  function drawSubsystems() {
+    if (!form.elements.split_system.checked) { subBox.innerHTML = ""; return; }
+    subBox.innerHTML = html`<div class="table-scroll spaced-top"><table class="subsys">
+      <thead><tr><th>#</th><th>Sub-system</th><th>Description</th><th class="r">PV modules</th><th class="r">DC kWp</th><th class="r">Inverters</th><th class="r">AC kW</th><th></th></tr></thead>
+      <tbody>${subsystems.map((r, i) => html`<tr data-ss="${i}">
+        <td>${i + 1}</td>
+        <td><input data-f="name" value="${r.name || ""}" placeholder="POC ${i + 1}" aria-label="Sub-system name"></td>
+        <td><input data-f="desc" value="${r.desc || ""}" placeholder="e.g. Block A roof, 109° east" aria-label="Description"></td>
+        <td class="r"><input data-f="modules" value="${g(r.modules)}" inputmode="numeric" class="num" aria-label="PV modules"></td>
+        <td class="r num" data-out="dc"></td>
+        <td class="r"><input data-f="inverters" value="${g(r.inverters)}" inputmode="numeric" class="num" aria-label="Inverters"></td>
+        <td class="r num" data-out="ac"></td>
+        <td class="r"><button type="button" class="btn small" data-ss-del="${i}" title="Remove">×</button></td></tr>`)}</tbody>
+      <tfoot><tr><th></th><th>Total</th><th class="small muted" id="ss-design"></th><th class="r num" id="ss-mod"></th><th class="r num" id="ss-dc"></th><th class="r num" id="ss-inv"></th><th class="r num" id="ss-ac"></th><th></th></tr></tfoot>
+    </table></div>
+    <div class="btns spaced-top"><button type="button" class="btn small" id="ss-add">Add sub-system</button></div>
+    <div id="ss-check"></div>`;
+    subBox.querySelector("#ss-add").addEventListener("click", () => { subsystems.push({ name: "", desc: "", modules: null, inverters: null }); drawSubsystems(); preview(); });
+    for (const b of subBox.querySelectorAll("[data-ss-del]")) b.addEventListener("click", () => { subsystems.splice(Number(b.dataset.ssDel), 1); drawSubsystems(); preview(); });
+  }
+  function drawSubTotals(cur) {
+    if (!cur.split_system || !subBox.querySelector("table")) return;
+    const { module, inverter, dc, ac } = capacities(cur, all);
+    subsystems.forEach((r, i) => {
+      const row = subBox.querySelector(`[data-ss="${i}"]`);
+      row.querySelector('[data-out="dc"]').textContent = module && r.modules ? num((r.modules * module.wp) / 1000, 2) : "—";
+      row.querySelector('[data-out="ac"]').textContent = inverter && r.inverters ? num(r.inverters * inverter.ac_kw, 1) : "—";
+    });
+    const mods = subsystems.reduce((t, r) => t + (r.modules || 0), 0), invs = subsystems.reduce((t, r) => t + (r.inverters || 0), 0);
+    subBox.querySelector("#ss-mod").textContent = mods;
+    subBox.querySelector("#ss-inv").textContent = invs;
+    subBox.querySelector("#ss-dc").textContent = module ? num((mods * module.wp) / 1000, 2) : "—";
+    subBox.querySelector("#ss-ac").textContent = inverter ? num(invs * inverter.ac_kw, 1) : "—";
+    subBox.querySelector("#ss-design").textContent = `Design: ${cur.module_count ?? "—"} modules, ${dc ? num(dc, 2) : "—"} kWp; ${cur.inverter_qty ?? "—"} inverters, ${ac ? num(ac, 1) : "—"} kW`;
+    const issues = subsystemIssues(cur, all);
+    subBox.querySelector("#ss-check").innerHTML = issues.length
+      ? html`<div class="flash warn spaced-top">${issues.map((t) => html`<div>${t}</div>`)}</div>`
+      : html`<div class="flash ok spaced-top">The sub-systems add up to the design. They go in a table after the design summary slide.</div>`;
+  }
+  subBox.addEventListener("input", (e) => {
+    const row = e.target.closest("[data-ss]");
+    if (!row) return;
+    const r = subsystems[Number(row.dataset.ss)], f = e.target.dataset.f;
+    if (f === "name" || f === "desc") r[f] = e.target.value;
+    else { const v = Math.round(Number(e.target.value)); r[f] = e.target.value.trim() && Number.isFinite(v) && v >= 0 ? v : null; }
+  });
+  form.elements.split_system.addEventListener("change", (e) => {
+    if (e.target.checked && !subsystems.length) {
+      const cur = read();
+      subsystems.push({ name: "POC 1", desc: "", modules: cur.module_count, inverters: cur.inverter_qty },
+                      { name: "POC 2", desc: "", modules: null, inverters: null });
+    }
+    drawSubsystems();
+  });
   // ---- pictures
   function drawPics() {
     main.querySelector("#pics").innerHTML = html`${IMAGE_KEYS.map(([key, label, slide, hint]) => {
@@ -453,8 +605,10 @@ export async function quick(main, { params, query }) {
       if (!f.inverter_id) put("ac_kw", f.ac_kw, `${num(f.ac_kw)} kW AC`);
       put("annual_gen_kwh", f.annual_gen_kwh, `${num(f.annual_gen_kwh, 0)} kWh a year`);
       put("specific_yield", f.specific_yield, `${num(f.specific_yield, 1)} kWh/kWp`);
-      if (monthly) put("monthly_kwh", monthly.map((x) => Math.round(x)).join(" "), "monthly generation");
+      put("pr_pct", f.pr_pct, `PR ${num(f.pr_pct, 1)}%`);
+      if (monthly) { o.monthly_kwh = monthly.map((x) => Math.round(x)); filled.push("monthly generation"); }
       put("shading_loss_pct", f.shading_loss_pct, `${num(f.shading_loss_pct, 1)}% shading losses`);
+      if (f.annual_gen_kwh) o.energy_source = "helioscope";
       put("tilt_deg", f.tilt_deg, "tilt");
       put("azimuth_deg", f.azimuth_deg, "azimuth");
       if (/carport/i.test(f.racking || "")) put("installation_type", "Carpark", "design type");
@@ -518,16 +672,21 @@ export async function quick(main, { params, query }) {
   function drawGantt() {
     gantt.innerHTML = html`
       <div class="g-row g-head"><span>#</span><span>Activity</span><span>Start</span><span>Weeks</span>
-        <div class="g-weeks">${months.map((m) => html`<b style="grid-column: span 4">Month ${m}</b>`)}</div></div>
-      ${schedule.map((a, i) => html`<div class="g-row" data-row="${i}"><span>${a.n}</span>
+        <div class="g-weeks">${months.map((m) => html`<b style="grid-column: span 4">Month ${m}</b>`)}</div><span></span></div>
+      ${schedule.map((a, i) => html`<div class="g-row" data-row="${i}"><span>${i + 1}</span>
         <input data-f="name" value="${a.name}" aria-label="Activity">
         <input data-f="start" value="${a.start}" inputmode="numeric" aria-label="Start week">
         <input data-f="weeks" value="${a.weeks}" inputmode="numeric" aria-label="Weeks">
-        <div class="g-weeks" data-cells="${i}">${raw(cells(a))}</div></div>`)}`;
+        <div class="g-weeks" data-cells="${i}">${raw(cells(a))}</div>
+        <button type="button" class="btn small" data-del="${i}" title="Remove this activity">×</button></div>`)}`;
   }
   function cells(a) {
     let s = "";
-    for (let w = 1; w <= MAX_WEEKS; w++) s += `<i data-w="${w}" class="${a.weeks > 0 && w >= a.start && w < a.start + a.weeks ? "on" : ""}${w % 4 === 0 ? " mend" : ""}" title="Week ${w}"></i>`;
+    const end = a.start + a.weeks - 1;
+    for (let w = 1; w <= MAX_WEEKS; w++) {
+      const on = a.weeks > 0 && w >= a.start && w <= end;
+      s += `<i data-w="${w}" class="${on ? `on${w === a.start ? " s" : ""}${w === end ? " e" : ""}` : ""}" title="Week ${w}"></i>`;
+    }
     return s;
   }
   const redrawRow = (i) => {
@@ -549,6 +708,12 @@ export async function quick(main, { params, query }) {
       row.querySelector("[data-cells]").innerHTML = cells(a);
     }
   });
+  gantt.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-del]");
+    if (!del) return;
+    schedule.splice(Number(del.dataset.del), 1);
+    drawGantt();
+  });
   let drag = null;
   gantt.addEventListener("pointerdown", (e) => {
     const cell = e.target.closest("[data-w]");
@@ -567,9 +732,16 @@ export async function quick(main, { params, query }) {
     a.start = Math.min(drag.from, w); a.weeks = Math.abs(w - drag.from) + 1;
     redrawRow(drag.i);
   });
-  window.addEventListener("pointerup", () => { drag = null; }, { once: false });
+  window.addEventListener("pointerup", () => { drag = null; });
+  main.querySelector("#sched-add").addEventListener("click", () => {
+    const end = Math.max(0, ...schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0)));
+    const start = Math.min(MAX_WEEKS, end + 1);
+    schedule.push({ name: "New activity", start, weeks: Math.min(2, MAX_WEEKS - start + 1) });
+    drawGantt();
+    gantt.querySelector(`[data-row="${schedule.length - 1}"] [data-f="name"]`)?.select();
+  });
   main.querySelector("#sched-reset").addEventListener("click", () => {
-    schedule.splice(0, schedule.length, ...DEFAULT_SCHEDULE.map((a) => ({ ...a })));
+    schedule.splice(0, schedule.length, ...DEFAULT_SCHEDULE.map((a) => ({ name: a.name, start: a.start, weeks: a.weeks })));
     drawGantt();
   });
 
@@ -589,8 +761,6 @@ export async function quick(main, { params, query }) {
 
   async function save() {
     const cur = read();
-    if (cur.monthly_raw_bad) { toast("Monthly generation needs exactly 12 numbers (Jan to Dec). Nothing was saved.", "error"); return null; }
-    delete cur.monthly_raw_bad;
     if (!cur.reference_code) cur.reference_code = suggestCode(cur.client_name);
     const { dc, ac } = capacities(cur, all);
     cur.dc_kwp = dc; cur.ac_kw = ac;  // kept for the list and older code
@@ -634,5 +804,6 @@ export async function quick(main, { params, query }) {
 
   drawPics();
   drawGantt();
+  drawSubsystems();
   preview();
 }

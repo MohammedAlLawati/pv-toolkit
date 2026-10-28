@@ -61,21 +61,42 @@ export function compass(az) {
 }
 
 /**
+ * Yearly degradation: the module datasheet's linear power warranty (first year, then each year
+ * after) when the library has it, else one yearly figure (the project's, or 0.65%).
+ */
+export function degradation(p) {
+  const m = p.module || {};
+  if (isNum(m.degradation_first_pct) && isNum(m.degradation_annual_pct)) {
+    return { first: m.degradation_first_pct, annual: m.degradation_annual_pct, source: "datasheet" };
+  }
+  const d = isNum(p.degradation_pct) ? p.degradation_pct : 0.65;
+  return { first: d, annual: d, source: "default" };
+}
+
+/** Energy lost by year n (1 = the simulated year, no loss), as a fraction. */
+function lossIn(n, deg) {
+  if (n <= 1) return 0;
+  if (deg.source === "datasheet") return (deg.first + (n - 2) * deg.annual) / 100;
+  return 1 - (1 - deg.annual / 100) ** (n - 1);
+}
+
+/**
  * Year-by-year energy (kWh), savings and cumulative cash flow (OMR) over 25 years.
  * ROI = average yearly savings ÷ price (simple return, no discounting). Provisional:
  * agreed to keep for now and check against HTC's own offers at QC.
  */
 export function cashFlow(p, annualKwh) {
-  const d = (isNum(p.degradation_pct) ? p.degradation_pct : 0.65) / 100;
+  const deg = degradation(p);
   const tariff = (isNum(p.tariff_bz) ? p.tariff_bz : 32) / 1000; // OMR per kWh
   const cost = isNum(p.subtotal_omr) ? p.subtotal_omr : null;
   const years = [];
   let cum = cost !== null ? -cost : 0;
   for (let n = 1; n <= 25; n++) {
-    const kwh = annualKwh * (1 - d) ** (n - 1);
+    const loss = lossIn(n, deg);
+    const kwh = annualKwh * (1 - loss);
     const savings = kwh * tariff;
     cum += savings;
-    years.push({ n, kwh, loss: 1 - (1 - d) ** (n - 1), savings, cumulative: cum });
+    years.push({ n, kwh, loss, savings, cumulative: cum });
   }
   let payback = null;
   if (cost) {
@@ -86,7 +107,29 @@ export function cashFlow(p, annualKwh) {
     }
   }
   const avg = years.reduce((t, y) => t + y.savings, 0) / 25;
-  return { years, payback, roi: cost ? (avg / cost) * 100 : null };
+  return { years, payback, roi: cost ? (avg / cost) * 100 : null, degradation: deg };
+}
+
+/** "1% in the first year and 0.40" (the slide adds "% yearly ..."), or "0.65". */
+export function degradationText(deg) {
+  return deg.source === "datasheet" && deg.first !== deg.annual
+    ? `${fmtG(deg.first)}% in the first year and ${fmtNum(deg.annual, 2)}`
+    : fmtNum(deg.annual, 2);
+}
+
+/**
+ * Sub-systems (POCs, roofs, orientations) as table rows, with their totals:
+ * p.subsystems = [{ name, desc, modules, inverters }], counts of the main module and inverter.
+ */
+export function subsystemTable(p) {
+  const list = Array.isArray(p.subsystems) ? p.subsystems : [];
+  const wp = p.module?.wp, kw = p.inverter?.ac_kw;
+  const rows = list.map((r) => ({
+    name: r.name || "", desc: r.desc || "", modules: isNum(r.modules) ? r.modules : 0, inverters: isNum(r.inverters) ? r.inverters : 0,
+  })).map((r) => ({ ...r, dc: wp ? (r.modules * wp) / 1000 : null, ac: kw ? r.inverters * kw : null }));
+  const sum = (k) => rows.reduce((t, r) => t + (r[k] || 0), 0);
+  const totals = { modules: sum("modules"), inverters: sum("inverters"), dc: wp ? sum("dc") : null, ac: kw ? sum("ac") : null };
+  return { rows, totals };
 }
 
 function paybackText(years) {
@@ -115,7 +158,7 @@ export function buildOfferValues(p, today = new Date()) {
     Orientation: isNum(p.azimuth_deg) ? `${fmtG(p.azimuth_deg)}° (${compass(p.azimuth_deg)})` : "",
     Tilt: isNum(p.tilt_deg) ? fmtG(p.tilt_deg) : "",
     OmrPerKwp: isNum(p.subtotal_omr) && dc ? fmtOmr(p.subtotal_omr / dc) : "",
-    Degradation: fmtNum(isNum(p.degradation_pct) ? p.degradation_pct : 0.65, 2),
+    Degradation: degradationText(degradation(p)),
     TariffBz: fmtNum(isNum(p.tariff_bz) ? p.tariff_bz : 32, 1),
   });
   if (annual) v.AnnualGenKWh = n0(annual);
@@ -131,6 +174,10 @@ export function buildOfferValues(p, today = new Date()) {
   v.AnnualSavings = flow ? fmtOmr(flow.years[0].savings) : "";
   v.PaybackText = flow && isNum(p.subtotal_omr) ? paybackText(flow.payback) : "";
   v.ROI = flow?.roi ? flow.roi.toFixed(1) : "";
+
+  const ss = subsystemTable(p);
+  Object.assign(v, { SS_TotModules: n0(ss.totals.modules), SS_TotInverters: n0(ss.totals.inverters),
+                     SS_TotDC: fmtNum(ss.totals.dc, 2), SS_TotAC: fmtNum(ss.totals.ac, 1) });
 
   const eq = (k, dp = 0) => (annual ? fmtNum(annual * PER_KWH[k], dp, true) : "");
   Object.assign(v, { CO2Tonnes: eq("co2_t"), Homes: eq("homes"), GasGallons: eq("gallons"),
@@ -150,7 +197,9 @@ export function buildOfferValues(p, today = new Date()) {
     S_iscpm: s(inv.mppt_iscs || fmtG(inv.max_isc_per_mppt)), S_effi: s(fmtG(inv.max_eff_pct)),
     S_topo: s(inv.topology), S_ip: s(inv.ip_rating), S_dims: s(inv.dimensions), S_wti: s(fmtG(inv.weight_kg)),
   });
-  return { values: v, months, estimated, flow, annual, dc, ac };
+  const subsystems = ss.rows.map((r) => ({ name: r.name, desc: r.desc, modules: n0(r.modules), dc: fmtNum(r.dc, 2),
+                                          inverters: n0(r.inverters), ac: fmtNum(r.ac, 1) }));
+  return { values: v, months, estimated, flow, annual, dc, ac, subsystems };
 }
 
 /** Labels of the fields an offer deck still needs; [] when it can be made in full. */
