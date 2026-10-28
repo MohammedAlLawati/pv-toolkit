@@ -90,6 +90,20 @@ document.addEventListener("click", (e) => {
   if (el && !window.confirm(el.dataset.confirm)) { e.preventDefault(); e.stopImmediatePropagation(); }
 }, true);
 
+// The side menu folds to a narrow strip; the choice is remembered in this browser.
+const shell = document.querySelector(".shell"), sideToggle = document.getElementById("side-toggle");
+function setMenu(collapsed) {
+  shell.classList.toggle("collapsed", collapsed);
+  sideToggle.setAttribute("aria-expanded", String(!collapsed));
+  sideToggle.title = collapsed ? "Show the menu" : "Hide the menu";
+}
+try { setMenu(localStorage.getItem("menu-collapsed") === "1"); } catch { /* storage off: start open */ }
+sideToggle.addEventListener("click", () => {
+  const collapsed = !shell.classList.contains("collapsed");
+  setMenu(collapsed);
+  try { localStorage.setItem("menu-collapsed", collapsed ? "1" : "0"); } catch { /* not remembered */ }
+});
+
 window.addEventListener("hashchange", route);
 window.addEventListener("unhandledrejection", (e) => toast(String(e.reason?.message || e.reason), "error"));
 
