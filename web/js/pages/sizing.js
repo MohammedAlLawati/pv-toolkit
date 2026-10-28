@@ -130,7 +130,7 @@ export async function sizing(main, { params, query }) {
   main.innerHTML = html`
 <div class="head">
   <div><h1>String &amp; inverter sizing</h1><div class="muted"><a href="#/projects/${p.id}">${p.name}</a> · ${p.client?.name}</div></div>
-  <div class="actions"><a class="btn" href="#/projects/${p.id}">Back to project</a></div>
+  <div class="actions"><a class="btn" href="#/projects/${p.id}/yield">Yield simulation</a><a class="btn" href="#/projects/${p.id}">Back to project</a></div>
 </div>
 
 <div class="panel">
@@ -188,7 +188,7 @@ export async function sizing(main, { params, query }) {
       <label>Record low (°C) <input name="t_min_c" value="${g(p.t_min_c)}" placeholder="${g(settings.values.t_min_c)}" inputmode="decimal"></label>
       <label>Max. ambient (°C) <input name="t_max_c" value="${g(p.t_max_c)}" placeholder="${g(settings.values.t_max_c)}" inputmode="decimal"></label>
     </div>
-    <p class="small muted">Blank uses the rule profile's value (shown greyed). Weather data fills these automatically in Phase 3.</p>
+    <p class="small muted">Blank uses the rule profile's value (shown greyed). The typical-year weather on the yield page doesn't give the record low, so enter it from local records.</p>
     <h3 class="spaced">Cables <span class="muted">(optional)</span></h3>
     <div class="pair">
       <label>DC string run, one way (m) <input name="dc_cable_m" value="${g(p.dc_cable_m)}" inputmode="decimal"></label>
