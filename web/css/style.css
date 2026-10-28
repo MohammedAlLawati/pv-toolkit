@@ -233,12 +233,22 @@ table.points td:first-child { width: 28px; }
 .bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; text-align: center; }
 .bar i { display: block; background: var(--sun); border-radius: 3px 3px 0 0; min-height: 2px; }
 .bar span { font-size: 10.5px; color: var(--ink-3); margin-top: 3px; }
+.bars.labelled { height: 170px; }
+.bar em { font-style: normal; font-size: 10px; color: var(--ink-2); margin-bottom: 2px; }
 
 /* quick offer form: pictures, report thumbnails, crop dialog */
-.pics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.pics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+@media (max-width: 1200px) { .pics { grid-template-columns: repeat(2, 1fr); } }
 .pic { display: flex; flex-direction: column; gap: 4px; }
 .pic-frame { aspect-ratio: 16 / 10; border: 1px dashed var(--line-2); border-radius: 6px; display: grid; place-items: center; overflow: hidden; background: #fafbfc; }
+.pic-frame { position: relative; }
 .pic-frame img { width: 100%; height: 100%; object-fit: contain; }
+.pic-frame img.logo-badge { position: absolute; width: 22%; height: auto; border: 1px solid var(--line); background: #fff; }
+.logo-badge.tl { top: 6px; left: 6px; } .logo-badge.tr { top: 6px; right: 6px; }
+.logo-badge.bl { bottom: 6px; left: 6px; } .logo-badge.br { bottom: 6px; right: 6px; }
+.corner-pick { display: inline-flex; gap: 2px; }
+.corner-pick .btn { padding: 2px 6px; }
+.corner-pick .btn.on { background: var(--navy); border-color: var(--navy); color: #fff; }
 .pic .btns, .thumb .btns, .crop-card .btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pic label.btn { flex-direction: row; font-size: 12px; color: var(--ink); }
 .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 8px; }
@@ -253,6 +263,18 @@ h3 { font-size: 13px; margin: 14px 0 2px; }
 .crop-sel { position: absolute; border: 2px solid var(--sun); background: rgba(242, 165, 22, .15); pointer-events: none; }
 @media (max-width: 760px) { .pics { grid-template-columns: 1fr; } }
 .table-scroll { overflow-x: auto; }
+
+/* quick offer form: editable schedule (Gantt) */
+.gantt { overflow-x: auto; font-size: 12px; }
+.g-row { display: grid; grid-template-columns: 24px minmax(180px, 1fr) 54px 54px minmax(480px, 2.4fr); gap: 6px; align-items: center; padding: 2px 0; min-width: 820px; }
+.g-row input { width: 100%; font: inherit; padding: 3px 5px; }
+.g-head { font-weight: 600; color: var(--ink-3); }
+.g-weeks { display: grid; grid-template-columns: repeat(40, 1fr); height: 20px; touch-action: none; user-select: none; }
+.g-head .g-weeks b { font-size: 10.5px; text-align: center; border-left: 1px solid var(--line); }
+.g-weeks i { border-left: 1px solid var(--line); cursor: pointer; }
+.g-weeks i.mend { border-right: 1px solid var(--line-2); }
+.g-weeks i.on { background: var(--sun); }
+details summary { cursor: pointer; font-weight: 600; }
 @media (max-width: 600px) {
   main { min-width: 0; }
   .head { flex-wrap: wrap; }

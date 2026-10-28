@@ -19,6 +19,26 @@ const PER_KWH = { co2_t: 0.0006989231479, homes: 0.00009111855886 / 3, gallons: 
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 
+/** Shading losses above this (in %) are flagged on the page and on the shadow slide. */
+export const SHADING_LIMIT_PCT = 3;
+
+const SHADE_OK = [
+  "As demonstrated in the simulation results, all solar panels experience minimal to no shading losses during peak sun hours, ensuring optimal energy generation.",
+  "This is visually confirmed in the bottom-left section of the report, where all panels are highlighted in green, indicating unobstructed sunlight exposure.",
+  "The uniform shading analysis further validates the effectiveness of the design in maximizing solar potential while mitigating performance losses.",
+];
+
+/** The shadow slide's three paragraphs, for a shading loss in % (null when unknown). */
+export function shadingText(lossPct) {
+  if (!isNum(lossPct) || lossPct <= SHADING_LIMIT_PCT) return SHADE_OK;
+  const pct = fmtNum(lossPct, 1);
+  return [
+    `The simulation results show shading losses of ${pct}%, which is higher than the ${SHADING_LIMIT_PCT}% design limit.`,
+    "The heatmap shows where the affected panels are: colours away from green indicate reduced solar access.",
+    "The energy figures in this offer already include these shading losses.",
+  ];
+}
+
 /** "12, 13.5\n14" -> [12, 13.5, 14]; anything that isn't 12 numbers -> null. */
 export function parseMonthly(text) {
   const vals = String(text ?? "").split(/[\s;|\t]+|,(?=\s|$)/).map((s) => s.replace(/,/g, "")).filter(Boolean).map(Number);
@@ -89,6 +109,7 @@ export function buildOfferValues(p, today = new Date()) {
   const annual = months ? months.reduce((a, b) => a + b, 0) : null;
   const dc = dcKwp(p), ac = acKw(p), ratio = dcAcRatio(p);
 
+  shadingText(p.shading_loss_pct).forEach((t, i) => { v[`ShadeP${i + 1}`] = t; });
   Object.assign(v, {
     DCACRatioPct: ratio ? fmtNum(ratio * 100, 0) : "",
     Orientation: isNum(p.azimuth_deg) ? `${fmtG(p.azimuth_deg)}° (${compass(p.azimuth_deg)})` : "",

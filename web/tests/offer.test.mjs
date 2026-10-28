@@ -108,28 +108,101 @@ test("environmental equivalents use the EPA Calc spreadsheet factors", () => {
   assert.equal(values.Seedlings, "70,524");
 });
 
-test("quick offer: capacities, price and a client name make a whole deck", async () => {
-  const { toProject, annualKwh, quickMissing } = await import("../js/offer/quick.js");
+test("quick offer: module × count, price per kWp and a client name make a whole deck", async () => {
+  const { toProject, annualKwh, quickMissing, suggestCode, DEFAULT_SCHEDULE } = await import("../js/offer/quick.js");
   const module = { ...base.module, id: 7 }, inverter = { ...base.inverter, id: 9 };
   const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, inverter]]), client: new Map() };
-  const o = { client_name: "Al Noor Trading", dc_kwp: 148.8, ac_kw: 125, subtotal_omr: 52000, module_id: 7, inverter_id: 9,
+  const o = { client_name: "Al Noor Trading", price_per_kwp: 350, module_id: 7, module_count: 240, inverter_id: 9, inverter_qty: 1,
               tariff_bz: 32, degradation_pct: 0.65, specific_yield: 1650 };
-  assert.deepEqual(quickMissing(o), []);
-  assert.deepEqual(quickMissing({ ...o, subtotal_omr: null, client_name: "" }), ["Client name", "Price"]);
-  assert.equal(annualKwh(o).kwh, 148.8 * 1650);
-  assert.equal(annualKwh({ ...o, annual_gen_kwh: 250000 }).source, "annual");
+  const dc = (module.wp * 240) / 1000, ac = inverter.ac_kw;
+  assert.deepEqual(quickMissing(o, lookup), []);
+  assert.deepEqual(quickMissing({ ...o, price_per_kwp: null, client_name: "" }, lookup), ["Client name", "Price per kWp"]);
+  assert.deepEqual(quickMissing({ ...o, module_count: null }, lookup), ["DC capacity (module and number of panels)"]);
+  assert.equal(annualKwh(o, dc).kwh, dc * 1650);
+  assert.equal(annualKwh({ ...o, annual_gen_kwh: 250000 }, dc).source, "annual");
 
   const p = toProject(o, lookup);
-  assert.equal(p.module_count, Math.round(148800 / module.wp));
-  assert.equal(p.inverter_qty, Math.max(1, Math.round(125 / inverter.ac_kw)));
+  assert.equal(p.dc_kwp, dc);
+  assert.equal(p.ac_kw, ac);
+  assert.equal(p.subtotal_omr, Math.round(350 * dc * 1000) / 1000);
+  assert.equal(p.reference_code, "ANT");
+  assert.deepEqual(p.schedule, DEFAULT_SCHEDULE);
+  // a typed capacity stands when no module is chosen
+  assert.equal(toProject({ ...o, module_id: null, dc_kwp: 148.8 }, lookup).dc_kwp, 148.8);
+
   const { text, values } = await deck(p);
-  assert.equal(values.DCCapacity, "148.8");     // stated capacity, not module count × Wp
-  assert.equal(values.ACCapacity, "125");
   assert.equal(values.Name, "Al Noor Trading");
-  assert.equal(values.AnnualGenKWh, "245,520");
   assert.ok(values.PaybackText && values.ROI && values.CO2Tonnes);
   assert.ok(!/\{\{\w+\}\}/.test(text), "no placeholder left unfilled");
   assert.ok(text.includes("Al Noor Trading"));
+
+  assert.equal(suggestCode("Petroleum Development Oman"), "PDO");
+  assert.equal(suggestCode("Autism Disorder Center"), "ADC");
+  assert.equal(suggestCode("Bank of the Muscat SAOG"), "BM");
+});
+
+test("shading above 3% is called out on slide 16", async () => {
+  const { shadingText } = await import("../js/offer/values.js");
+  assert.ok(!/higher than/.test(shadingText(0.2).join(" ")));
+  assert.match(shadingText(4.5)[0], /4\.5%.*higher than the 3% design limit/);
+  const img = { bytes: readFileSync(new URL("../data/htc_logo.jpg", import.meta.url)), ext: "jpeg", width: 400, height: 300 };
+  const { text } = await deck({ ...base, shading_loss_pct: 4.5 }, { shadow: img });
+  assert.ok(text.includes("higher than the 3% design limit"));
+});
+
+test("the HTC logo sits inside the chosen corner of each 3D view", async () => {
+  const img = { bytes: readFileSync(new URL("../data/htc_logo.jpg", import.meta.url)), ext: "jpeg", width: 1000, height: 700 };
+  const { zip } = await deck(base, { structure: { ...img, logoCorner: "br" }, structure2: { ...img, logoCorner: "tl" } });
+  const files = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+  let xml = "";
+  for (const f of files) { const x = await zip.file(f).async("string"); if (x.includes('name="Image structure2"')) xml = x; }
+  const box = (name) => {
+    const pic = xml.split("<p:pic>").find((p) => p.includes(`name="${name}"`));
+    const [, x, y] = pic.match(/<a:off x="(\d+)" y="(\d+)"/), [, w, h] = pic.match(/<a:xfrm>.*?<a:ext cx="(\d+)" cy="(\d+)"/);
+    return { x: +x, y: +y, w: +w, h: +h };
+  };
+  const pairs = [["Image structure", "Picture 10", "br"], ["Image structure2", "Picture 1", "tl"]];
+  for (const [image, logo, corner] of pairs) {
+    const a = box(image), b = box(logo);
+    assert.ok(b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h, `${logo} inside ${image}`);
+    assert.ok(b.w <= a.w * 0.3 + 1);
+    if (corner === "br") assert.ok(b.x > a.x + a.w / 2 && b.y > a.y + a.h / 2);
+    else assert.ok(b.x < a.x + a.w / 2 && b.y < a.y + a.h / 2);
+  }
+});
+
+test("schedule from the Gantt chart reaches the deck", async () => {
+  const { DEFAULT_SCHEDULE } = await import("../js/offer/quick.js");
+  const short = DEFAULT_SCHEDULE.map((a) => ({ ...a, start: 1, weeks: 3 }));
+  short[5] = { ...short[5], name: "Install everything", start: 3, weeks: 5 };
+  const { values, months, flow } = buildOfferValues(base, new Date("2026-03-05T00:00:00"));
+  const out = await renderPptx(template, { values, months, flow, images: {}, schedule: short,
+    moduleModel: base.module.model, inverterModel: base.inverter.model });
+  const zip = await JSZip.loadAsync(out.bytes);
+  let text = "";
+  for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) text += await zip.file(f).async("string");
+  assert.ok(text.includes("Install everything"));
+  assert.ok(!text.includes("All Installation (Mechanical"));
+  assert.ok(text.includes(">W20<") && !text.includes(">W21<"), "slides for weeks past the schedule are dropped");
+});
+
+test("Helioscope report figures", async () => {
+  const { parseReport } = await import("../js/offer/helioscope.js");
+  // text as pdf.js reads it from a Helioscope (Aurora) annual production report
+  const sim = `Design Design 1, 5L, Jinko 720Wp Module DC Nameplate 579.60 kW Inverter AC Nameplate 600.00 kW Load Ratio: 0.97
+    Annual Production 986.8 MWh Performance Ratio 77.3% kWh/kWp 1,702.6 Sources of System Loss Shading Shading: 0.2%
+    Component Name Count Inverters SG150CX (Sungrow) 4 (600.00 kW) Strings 10 AWG (Copper) 43 (3,436.1 m)
+    Module Jinko Solar, JKM720N-66HL5- BDV-Z6-EN (720W) 805 (579.60 kW) Components
+    Description Racking Orientation Tilt Azimuth Intrarow Spacing Frame Size Frames Modules Power
+    FS-1 Flush Mount Landscape (Horizontal) 5° 289.1991° 0.0 m 1x1 60 60 43.20 kW
+    FS-3 Flush Mount Landscape (Horizontal) 5° 109.049515° 0.0 m 1x1 435 435 313.20 kW Field Segments`;
+  const lib = { modules: [{ id: 1, model: "JKM720N-66HL5-BDV", wp: 720 }], inverters: [{ id: 2, model: "SG150CX", ac_kw: 150 }] };
+  const r = parseReport(sim, lib);
+  assert.deepEqual([r.dc_kwp, r.ac_kw, r.annual_gen_kwh, r.specific_yield, r.shading_loss_pct], [579.6, 600, 986800, 1702.6, 0.2]);
+  assert.deepEqual([r.module_count, r.module_wp, r.inverter_qty, r.module_id, r.inverter_id], [805, 720, 4, 1, 2]);
+  assert.deepEqual([r.tilt_deg, r.azimuth_deg, r.racking], [5, 109, "Flush Mount"]);
+  const shade = "Totals, weighted by kWp 805 579.6 kWp 2,199.5kWh/m 986.8 MWh 91.4% 96.5% 91.2%";
+  assert.equal(parseReport(shade).shading_loss_pct, 3.5);
 });
 
 test("Helioscope pictures: which slot they suit", async () => {

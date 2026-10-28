@@ -5,6 +5,8 @@
 //   offer:ds_module:<model> / offer:ds_inverter:<model>  datasheet slides of one model
 //   offer:spec_module / offer:spec_inverter             generic spec tables (used otherwise)
 //   offer:needs:<image>                                  dropped when that image is missing
+// Logos (p:pic with descr "logo:<key>") are moved to a corner of image <key>.
+// Schedule tables (a W1, W2, ... header row) are shaded from the activities' weeks.
 // Charts: chart1 monthly energy (MWh), chart2 25-year energy + loss, chart3 cumulative cash flow.
 import { replacePlaceholders } from "../docgen/render.js";
 
@@ -146,26 +148,110 @@ function setSeries(doc, index, cats, vals) {
 
 // ---- images ------------------------------------------------------------------------------
 
+const LOGO_MARGIN = 64008; // 0.07 in
+
 async function fillImages(deck, part, root, images) {
+  const placed = {};
   for (const pic of byTag(root, "p", "pic")) {
     const pr = byTag(pic, "p", "cNvPr")[0];
     const tag = pr?.getAttribute("descr") || "";
     if (!tag.startsWith("img:")) continue;
-    const img = images[tag.slice(4)];
+    const key = tag.slice(4);
+    const img = images[key];
     if (!img) { pic.parentNode.removeChild(pic); continue; }
     const rid = await deck.addImage(part, img.bytes, img.ext);
     byTag(pic, "a", "blip")[0].setAttributeNS(NS.r, "r:embed", rid);
-    const off = byTag(pic, "a", "off")[0], ext = byTag(pic, "a", "ext")[0];
+    const xfrm = byTag(pic, "a", "xfrm")[0], off = child(xfrm, "a", "off"), ext = child(xfrm, "a", "ext");
     const bx = Number(off.getAttribute("x")), by = Number(off.getAttribute("y"));
     const bw = Number(ext.getAttribute("cx")), bh = Number(ext.getAttribute("cy"));
     const scale = Math.min(bw / img.width, bh / img.height);
     const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-    off.setAttribute("x", String(bx + Math.floor((bw - w) / 2)));
-    off.setAttribute("y", String(by + Math.floor((bh - h) / 2)));
+    const x = bx + Math.floor((bw - w) / 2), y = by + Math.floor((bh - h) / 2);
+    off.setAttribute("x", String(x));
+    off.setAttribute("y", String(y));
     ext.setAttribute("cx", String(w));
     ext.setAttribute("cy", String(h));
     pr.setAttribute("descr", "");
+    placed[key] = { x, y, w, h, corner: img.logoCorner || "tl" };
   }
+  // logos tagged "logo:<key>" go in the chosen corner of that picture, or away with it
+  for (const pic of byTag(root, "p", "pic")) {
+    const pr = byTag(pic, "p", "cNvPr")[0];
+    const tag = pr?.getAttribute("descr") || "";
+    if (!tag.startsWith("logo:")) continue;
+    const box = placed[tag.slice(5)];
+    if (!box) { pic.parentNode.removeChild(pic); continue; }
+    const xfrm = byTag(pic, "a", "xfrm")[0], off = child(xfrm, "a", "off"), ext = child(xfrm, "a", "ext");
+    let lw = Number(ext.getAttribute("cx")), lh = Number(ext.getAttribute("cy"));
+    const fit = Math.min(1, (box.w * 0.3) / lw); // never more than 30% of the picture's width
+    lw = Math.round(lw * fit); lh = Math.round(lh * fit);
+    const right = box.corner[1] === "r", bottom = box.corner[0] === "b";
+    off.setAttribute("x", String(right ? box.x + box.w - lw - LOGO_MARGIN : box.x + LOGO_MARGIN));
+    off.setAttribute("y", String(bottom ? box.y + box.h - lh - LOGO_MARGIN : box.y + LOGO_MARGIN));
+    ext.setAttribute("cx", String(lw));
+    ext.setAttribute("cy", String(lh));
+    pr.setAttribute("descr", "");
+  }
+}
+
+// ---- schedule ----------------------------------------------------------------------------
+
+const cellText = (tc) => byTag(tc, "a", "t").map((t) => t.textContent).join("").trim();
+
+/** Replace a table cell's text, keeping the first run's formatting. */
+function setCellText(tc, text) {
+  const paras = byTag(tc, "a", "p");
+  paras.slice(1).forEach((p) => p.parentNode.removeChild(p));
+  const runs = byTag(paras[0], "a", "r");
+  runs.slice(1).forEach((r) => r.parentNode.removeChild(r));
+  if (runs[0]) byTag(runs[0], "a", "t")[0].textContent = text;
+}
+
+/** The tcPr's own fill (its last solidFill / noFill child, not a border's). */
+function setCellFill(doc, tc, filled, fillTemplate) {
+  const pr = child(tc, "a", "tcPr");
+  if (!pr) return;
+  const old = Array.from(pr.childNodes).filter((n) => n.namespaceURI === NS.a && (n.localName === "solidFill" || n.localName === "noFill")).pop();
+  const next = filled ? fillTemplate.cloneNode(true) : doc.createElementNS(NS.a, "a:noFill");
+  if (old) pr.replaceChild(next, old); else pr.appendChild(next);
+}
+
+/**
+ * Fill the "Execution Schedule" tables: rows start with the activity number, the second
+ * header row names the weeks (W1, W2, ...). `schedule` = [{ n, name, start, weeks }].
+ * Returns the last week used on this slide's table (0 when the slide has no schedule).
+ */
+export function fillSchedule(root, schedule) {
+  let used = 0;
+  for (const tbl of byTag(root, "a", "tbl")) {
+    const rows = byTag(tbl, "a", "tr");
+    const weekRow = rows.find((r) => byTag(r, "a", "tc").some((tc) => /^W\d+$/.test(cellText(tc))));
+    if (!weekRow) continue;
+    const weeks = byTag(weekRow, "a", "tc").map((tc) => { const m = cellText(tc).match(/^W(\d+)$/); return m ? Number(m[1]) : null; });
+    let fillTemplate = null;
+    for (const r of rows) for (const tc of byTag(r, "a", "tc")) {
+      const pr = child(tc, "a", "tcPr");
+      const fill = pr && Array.from(pr.childNodes).filter((n) => n.namespaceURI === NS.a && (n.localName === "solidFill" || n.localName === "noFill")).pop();
+      if (!fillTemplate && fill?.localName === "solidFill" && r !== weekRow && rows.indexOf(r) > rows.indexOf(weekRow)) fillTemplate = fill;
+    }
+    if (!fillTemplate) continue;
+    for (const r of rows.slice(rows.indexOf(weekRow) + 1)) {
+      const tcs = byTag(r, "a", "tc");
+      const no = cellText(tcs[0]);
+      if (!/^\d+$/.test(no)) continue;
+      // an activity left out of the schedule keeps its row, unshaded
+      const act = schedule.find((a) => String(a.n) === no) || { weeks: 0 };
+      if (act.name) setCellText(tcs[1], act.name);
+      tcs.forEach((tc, i) => {
+        const w = weeks[i];
+        if (w === null) return;
+        const on = act.weeks > 0 && w >= act.start && w < act.start + act.weeks;
+        setCellFill(root, tc, on, fillTemplate);
+        if (on) used = Math.max(used, w);
+      });
+    }
+  }
+  return used;
 }
 
 // ---- the deck ----------------------------------------------------------------------------
@@ -185,7 +271,8 @@ export function keepSlide(tag, { moduleModel, inverterModel, images, dsModules, 
 /**
  * @param template ArrayBuffer of offer_deck.pptx
  * @param input { values, months (12 kWh or null), flow (from cashFlow or null),
- *                moduleModel, inverterModel, images: { site, shadow, structure } }
+ *                moduleModel, inverterModel, schedule ([{ n, name, start, weeks }] or null),
+ *                images: { site, shadow, structure, structure2 }, each { bytes, ext, width, height, logoCorner? } }
  * @returns { bytes, missing }
  */
 export async function renderPptx(template, input) {
@@ -203,10 +290,17 @@ export async function renderPptx(template, input) {
   const dsInverters = new Set(tags.filter((t) => t.startsWith("offer:ds_inverter:")).map((t) => t.split(":")[2]));
   const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, images, dsModules, dsInverters };
 
+  const lastWeek = input.schedule?.length ? Math.max(...input.schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0))) : null;
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
     if (!keepSlide(tags[i], ctx)) { await deck.dropSlide(s); continue; }
     const root = await deck.tree(s.part);
+    if (input.schedule?.length && byTag(root, "a", "tbl").length) {
+      // a schedule slide whose weeks all come after the last activity is dropped
+      const firstWeek = Math.min(...byTag(root, "a", "t").map((t) => t.textContent.match(/^W(\d+)$/)).filter(Boolean).map((m) => Number(m[1])));
+      if (Number.isFinite(firstWeek) && firstWeek > lastWeek) { await deck.dropSlide(s); continue; }
+      fillSchedule(root, input.schedule);
+    }
     replacePlaceholders(root, input.values, missing, "a");
     await fillImages(deck, s.part, root, images);
   }
