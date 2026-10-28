@@ -90,6 +90,27 @@ export function parseReport(text, library = { modules: [], inverters: [] }) {
   if (m) { out.inverter_model = m[1]; out.inverter_qty = numberIn(m[3]); out.ac_kw ??= scaled(m[4], m[5]); }
   m = t.match(/Module\s+(?:([^,()]{2,40}),\s*)?([A-Za-z0-9][\w.\-]*)\s*\((\d{2,4}(?:\.\d+)?)\s*W\)\s*(\d[\d,]*)\s*\(\s*([\d,.]+)\s*(kW|MW)\s*\)/);
   if (m) { out.module_model = m[2]; out.module_wp = Number(m[3]); out.module_count = numberIn(m[4]); out.dc_kwp ??= scaled(m[5], m[6]); }
+  else {
+    // the components table (page 3) read in another order: "Module Jinko Solar, JKM720N-66HL5- 805 (579.60 BDV-Z6-EN (720W) kW)"
+    const row = t.match(/\bModule\s+(?!DC|Binning|&)(.{0,160}?)\bkW\s*\)/);
+    if (row) {
+      const cnt = row[1].match(/(?:^|[\s-])(\d[\d,]*)\s*\(\s*([\d,.]+)(?=\s)/);
+      const rest = cnt ? row[1].replace(cnt[0].trimStart().replace(/^-/, ""), "") : row[1];
+      const wp = rest.match(/\((\d{2,4}(?:\.\d+)?)\s*W\)/);
+      const model = rest.replace(/-\s+/g, "-").match(/([A-Z]{2,}[\w.]*-[\w.\-]*)/);
+      if (cnt) { out.module_count = numberIn(cnt[1]); out.dc_kwp ??= numberIn(cnt[2]); }
+      if (wp) out.module_wp = Number(wp[1]);
+      if (model) out.module_model = model[1].replace(/-$/, "");
+    }
+  }
+  // else the field segments' module counts (page 3), added up
+  if (!out.module_count) {
+    let sum = 0;
+    for (const fs of t.matchAll(/FS-\d+\s.*?\b\d+x\d+\s+(\d+)\s+(\d+)\s+[\d,.]+\s*kW\b/g)) sum += Number(fs[2]);
+    if (sum) out.module_count = sum;
+  }
+  // else DC capacity ÷ module rating
+  if (!out.module_count && out.dc_kwp && out.module_wp) out.module_count = Math.round((out.dc_kwp * 1000) / out.module_wp);
 
   // the field segment with the most power gives the tilt and orientation
   let best = null;
@@ -100,7 +121,8 @@ export function parseReport(text, library = { modules: [], inverters: [] }) {
   if (best) { out.tilt_deg = best.tilt; out.azimuth_deg = +best.az.toFixed(1); out.racking = best.racking.replace(/\s*(Landscape|Portrait).*$/i, "").trim(); }
 
   // library items: a model named in the report (longest match), else same Wp / kW
-  const lower = t.toLowerCase();
+  // (the model can be split by the count when the components table is read out of order)
+  const lower = `${t} ${t.replace(/-\d[\d,]*\s*\([\d,.]+\s+/g, "-")}`.toLowerCase();
   const named = (rows) => rows.filter((r) => r.model && lower.includes(r.model.toLowerCase())).sort((a, b) => b.model.length - a.model.length)[0];
   const mod = named(library.modules || []) || (out.module_wp && (library.modules || []).find((x) => x.wp === out.module_wp && out.module_model?.startsWith(x.model.slice(0, 4))));
   const inv = named(library.inverters || []);
