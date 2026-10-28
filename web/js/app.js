@@ -26,6 +26,10 @@ const ROUTES = [
   ["/parties/new", "parties", "form", "parties"],
   ["/parties/:id", "parties", "form", "parties"],
   ["/settings", "settings", "settings", "settings"],
+  ["/offers", "offers", "list", "offers"],
+  ["/offers/new", "offers", "quick", "offers"],
+  ["/offers/quick/:id", "offers", "quick", "offers"],
+  ["/offers/:id", "offers", "view", "offers"],
   ["/letters", "letters", "list", "letters"],
   ["/letters/*", "letters", "route", "letters"],
 ];
