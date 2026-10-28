@@ -97,3 +97,13 @@ test("offerMissing lists what the deck still needs", async () => {
   assert.deepEqual(offerMissing({ ...base, subtotal_omr: null, annual_gen_kwh: 0, monthly_kwh: null }),
                    ["Annual generation", "Price (subtotal)"]);
 });
+
+test("environmental equivalents use the EPA Calc spreadsheet factors", () => {
+  // EPA Calc sheet 2: 5,920 × 625 W = 3,700 kWp × 1,650 = 6,105,000 kWh
+  const { values } = buildOfferValues({ ...base, annual_gen_kwh: 6105000, monthly_kwh: null });
+  assert.equal(values.CO2Tonnes, "4,267");
+  assert.equal(values.Homes, "185");
+  assert.equal(values.GasGallons, "479,897");
+  assert.equal(values.Cars, "1,015");
+  assert.equal(values.Seedlings, "70,524");
+});
