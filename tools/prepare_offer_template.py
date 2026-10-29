@@ -252,6 +252,20 @@ def textbox(slide, x, y, w, h, paras: list[str], size=14, color="2E7D32") -> Non
     slide.find(q("p:cSld")).find(q("p:spTree")).append(sp)
 
 
+def footnote(slide, x, y, w, h, text: str, size=9, color="595959") -> None:
+    """A small italic note with no bullet, centred."""
+    sp_xml = f"""<p:sp xmlns:p="{NS['p']}" xmlns:a="{NS['a']}">
+  <p:nvSpPr><p:cNvPr id="{max_shape_id(slide) + 1}" name="Offer footnote"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x="{emu(x)}" y="{emu(y)}"/><a:ext cx="{emu(w)}" cy="{emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>
+  <p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/>
+    <a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="{size * 100}" i="1" dirty="0"><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></a:rPr><a:t></a:t></a:r></a:p>
+  </p:txBody>
+</p:sp>"""
+    sp = etree.fromstring(sp_xml)
+    sp.find(".//" + q("a:t")).text = text
+    slide.find(q("p:cSld")).find(q("p:spTree")).append(sp)
+
+
 def remove_shape(pkg: Pkg, n: int, name: str):
     """Remove a shape; returns its (x, y, cx, cy) in EMU."""
     shp = shape_named(pkg.slide(n), name)
@@ -549,7 +563,7 @@ def build() -> None:
     rpr = first_rpr(rows[1].findall(q("a:tc"))[1])
     for i, text in enumerate(["{{InstallationType}}", "{{PanelNo}} modules", "{{PanelType}}", "{{PanelCap}}",
                               "{{ModuleMake}}", "{{DCCapacity}}", "{{InverterMake}}", "{{ACCapacity}}",
-                              "{{DCACRatioPct}} %"], start=1):
+                              "{{DCACRatioPct}} %{{DCACMark}}"], start=1):
         cell_set(rows[i].findall(q("a:tc"))[1], text, rpr)
     # 19-25 datasheet slides of particular models, plus generic spec slides
     for n in (19, 20, 21):
@@ -560,6 +574,8 @@ def build() -> None:
         tag_slide(pkg.slide(n), "offer:ds_inverter:SG125CX-P2")
     components_slide(pkg, 50)
     clone_slide(pkg, 15, 49, after_slide=15)
+    # (after the copy for slide 49) under the table: the footnote for a DC/AC ratio above 1.21 (empty otherwise)
+    footnote(pkg.slide(15), 0.5, 4.97, 9.0, 0.38, "{{DCACNote}}", size=8)
     subsystem_slide(pkg, 49)
     clone_slide(pkg, 23, 47, after_slide=21)
     clone_slide(pkg, 23, 48, after_slide=25)

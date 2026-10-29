@@ -9,8 +9,8 @@ import { setTitle } from "../app.js";
 import { generateOffer } from "../docgen/generate.js";
 import { fmtOmr } from "../docgen/context.js";
 import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing, parseMonthly } from "../offer/values.js";
-import { DCAC_MAX, DCAC_MIN, DEFAULT_INSTALLATION, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
-  annualKwh, capacities, quickMissing, ratioOk, suggestInverters, suggestCode, systemIssues, systemTotals, systemsOf,
+import { DCAC_GREEN, DCAC_MAX, DCAC_MIN, DCAC_NOTE, DEFAULT_INSTALLATION, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
+  annualKwh, capacities, quickMissing, ratioBand, suggestInverters, suggestCode, systemIssues, systemTotals, systemsOf,
   toProject } from "../offer/quick.js";
 import { inverterOptions, moduleOptions } from "../options.js";
 
@@ -203,6 +203,14 @@ const MONTHLY_SOURCE = {
   typed: "Monthly figures as pasted under \"Change the figures\", scaled to the annual total.",
 };
 // every stored picture of a quick offer: the slide pictures and the client's logo (cover slide)
+const FLASH_OF = { ok: "ok", high: "warn", bad: "error" };
+/** What a ratio means, after "DC/AC ratio 1.23". */
+const ratioSays = (r) => ({
+  ok: `, within ${DCAC_MIN}–${DCAC_GREEN}.`,
+  high: `, above ${DCAC_GREEN} but within the ${DCAC_MAX} limit.${r > DCAC_NOTE + 1e-9 ? " The offer will note it for the client to confirm." : ""}`,
+  bad: `, outside ${DCAC_MIN}–${DCAC_MAX}. Pick one of the suggestions below.`,
+})[ratioBand(r)];
+
 const PIC_FIELDS = [...IMAGE_KEYS.map(([key]) => key), "client_logo_file_id"];
 const SLOT_SHORT = { offer_site_file_id: "Location", offer_shadow_file_id: "Shading", offer_structure_file_id: "3D left", offer_structure2_file_id: "3D right" };
 const FIELD_OF = Object.fromEntries(Object.entries(SLOT_OF).map(([field, slot]) => [slot, field]));
@@ -520,27 +528,28 @@ export async function quick(main, { params, query }) {
         const x = subsystems[i].inverters[j], inv = invById.get(x.inverter_id);
         row.querySelector('[data-out="kw"]').textContent = inv && x.qty ? `${num(inv.ac_kw * x.qty, 1)} kW` : "";
       });
-      const ok = ratioOk(r.ratio);
       setHtml(card.querySelector('[data-out="ratio"]'), r.dc && r.ac
-        ? html`<div class="flash ${ok ? "ok" : "warn"} spaced-top">${num(r.dc, 2)} kWp DC on ${num(r.ac, 1)} kW AC: DC/AC ratio <b>${ratioText(r.ratio)}</b>${ok ? `, within ${DCAC_MIN}–${DCAC_MAX}.` : `, outside ${DCAC_MIN}–${DCAC_MAX}. Pick one of the suggestions below.`}</div>`.toString()
+        ? html`<div class="flash ${FLASH_OF[ratioBand(r.ratio)]} spaced-top">${num(r.dc, 2)} kWp DC on ${num(r.ac, 1)} kW AC: DC/AC ratio <b>${ratioText(r.ratio)}</b>${ratioSays(r.ratio)}</div>`.toString()
         : "");
       const mine = subsystems[i].inverters;
       const same = (c) => c.inverters.length === mine.length && c.inverters.every((x) => mine.some((y) => y.inverter_id === x.inverter_id && y.qty === x.qty));
       setHtml(card.querySelector('[data-out="suggest"]'), (!r.dc ? html`<p class="small muted spaced-top">Inverter suggestions appear once the DC capacity is known.</p>`
         : !all.inverters.length ? html``
         : picks[i].length ? html`<div class="suggest spaced-top"><span class="small muted">Suggested inverters, fewest first:</span>
-          ${picks[i].map((c, k) => html`<button type="button" class="btn small ${same(c) ? "on" : ""}" data-pick="${i}:${k}">${c.label}<small>${num(c.ac, 0)} kW · DC/AC ${num(c.ratio, 2)}</small></button>`)}</div>`
+          ${picks[i].map((c, k) => html`<button type="button" class="btn small ratio-${ratioBand(c.ratio)} ${same(c) ? "on" : ""}" data-pick="${i}:${k}">${c.label}<small>${num(c.ac, 0)} kW · DC/AC ${num(c.ratio, 2)}</small></button>`)}</div>`
         : html`<p class="small missing-text spaced-top">No combination of up to two inverter models in the library gives a DC/AC ratio within ${DCAC_MIN}–${DCAC_MAX}.</p>`).toString());
     });
 
-    const issues = systemIssues(cur, all), ok = ratioOk(t.ratio), rep = cur.report_design;
+    const issues = systemIssues(cur, all), rep = cur.report_design;
     main.querySelector("#system-summary").innerHTML = html`<div class="summary">
       <div><span>DC capacity</span><b>${t.dc ? `${num(t.dc, 2)} kWp` : "—"}</b><small class="muted">${t.modules ? `${num(t.modules, 0)} PV modules` : ""}</small></div>
       <div><span>AC capacity</span><b>${t.ac ? `${num(t.ac, 1)} kW` : "—"}</b><small class="muted">${t.inverterQty ? `${t.inverterQty} inverter${t.inverterQty === 1 ? "" : "s"}` : ""}</small></div>
-      <div><span>DC/AC ratio</span><b class="${t.ratio !== null && !ok ? "missing-text" : ""}">${ratioText(t.ratio)}</b><small class="muted">limits ${DCAC_MIN}–${DCAC_MAX}</small></div>
+      <div><span>DC/AC ratio</span><b class="ratio-text-${ratioBand(t.ratio)}">${ratioText(t.ratio)}</b><small class="muted">limits ${DCAC_MIN}–${DCAC_MAX}</small></div>
       <div><span>Sub-systems</span><b>${t.rows.length}</b><small class="muted">${t.rows.length > 1 || t.inverterModels.length > 1 ? "Breakdown slide included" : ""}</small></div>
     </div>
     ${issues.length ? html`<div class="flash warn">${issues.map((x) => html`<div>${x}</div>`)}</div>`
+      : t.dc && t.ac && [t.ratio, ...t.rows.map((r) => r.ratio)].some((r) => r > DCAC_NOTE + 1e-9)
+        ? html`<div class="flash warn">Every DC/AC ratio is within ${DCAC_MIN}–${DCAC_MAX}, but one is above ${DCAC_NOTE}: the design summary slide gets a footnote saying the offer can be resubmitted if the client isn't comfortable with it.</div>`
       : t.dc && t.ac ? html`<div class="flash ok">Every DC/AC ratio is within ${DCAC_MIN}–${DCAC_MAX}.</div>` : ""}
     ${rep?.modules && t.modules && rep.modules !== t.modules ? html`<div class="flash warn">The simulation report has ${num(rep.modules, 0)} PV modules; the sub-systems add up to ${num(t.modules, 0)}.</div>` : ""}`;
   }

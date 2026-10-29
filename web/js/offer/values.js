@@ -2,6 +2,7 @@
 // (see data.full). Extends the document values in docgen/context.js.
 import { acKw, buildValues, dcAcRatio, dcKwp, fmtNum, fmtOmr } from "../docgen/context.js";
 import { fmtG, moduleDims } from "../equipment_fields.js";
+import { DCAC_GREEN, DCAC_NOTE } from "./quick.js";
 
 export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -124,6 +125,21 @@ export function mountingText(r) {
     .filter(Boolean).join(", ");
 }
 
+const pct = (r) => `${fmtNum(r * 100, 0)} %`;
+
+/**
+ * The design summary's footnote when the DC/AC ratio (of the system, or of a sub-system) is above
+ * DCAC_NOTE: the client confirms it or the offer is resubmitted. "" otherwise.
+ */
+export function dcacNote(ratio, rows = []) {
+  const high = rows.filter((r) => r.ratio > DCAC_NOTE + 1e-9);
+  const lead = ratio > DCAC_NOTE + 1e-9
+    ? `The DC/AC ratio of ${pct(ratio)} is above ${pct(DCAC_GREEN)}`
+    : high.length ? `${high.map((r) => `${r.name || "A sub-system"} (${pct(r.ratio)})`).join(", ")} ${high.length === 1 ? "has a DC/AC ratio" : "have DC/AC ratios"} above ${pct(DCAC_GREEN)}`
+    : "";
+  return lead ? `* ${lead}. If the client is not comfortable with this, the offer can be resubmitted with a lower DC/AC ratio.` : "";
+}
+
 /**
  * Sub-systems (POCs, roofs, orientations) as table rows, with their totals. p.subsystems holds the
  * rows of quick.systemTotals: [{ name, desc, module, modules, dc, invs: [{ inverter, qty }], ac }].
@@ -233,6 +249,9 @@ export function buildOfferValues(p, today = new Date()) {
   v.ROI = flow?.roi ? flow.roi.toFixed(1) : "";
 
   const ss = subsystemTable(p);
+  const note = dcacNote(ratio, ss.rows);
+  v.DCACMark = note ? "*" : "";
+  v.DCACNote = note;
   Object.assign(v, { SS_TotModules: n0(ss.totals.modules), SS_TotInverters: `${n0(ss.totals.inverters)} inverters`,
                      SS_TotDC: fmtNum(ss.totals.dc, 2), SS_TotAC: fmtNum(ss.totals.ac, 1), SS_TotRatio: fmtNum(ss.totals.ratio, 2) });
   // a system with several inverter models names them all

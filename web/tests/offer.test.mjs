@@ -13,6 +13,7 @@ const { renderPptx } = await import("../js/offer/pptx.js");
 const { buildOfferValues, cashFlow, parseMonthly } = await import("../js/offer/values.js");
 
 const template = readFileSync(new URL("../templates/offer_deck.pptx", import.meta.url));
+const dcKwpOf = (p) => (p.module.wp * p.module_count) / 1000;
 const base = JSON.parse(readFileSync(new URL("./fixtures/docgen_cases.json", import.meta.url)))[0].project;
 
 async function deck(p, images = {}) {
@@ -236,20 +237,20 @@ test("degradation follows the module datasheet's linear warranty", async () => {
   assert.equal(p.module.degradation_annual_pct, 0.4);
 });
 
-test("inverter suggestions: DC/AC within 0.8-1.2, fewest inverters, no inverter that isn't needed", async () => {
+test("inverter suggestions: DC/AC within 0.8-1.25, fewest inverters, no inverter that isn't needed", async () => {
   const { suggestInverters } = await import("../js/offer/quick.js");
   const lib = [5, 10, 20, 25, 30, 50, 125, 150].map((kw, i) => ({ id: i + 1, model: `SG${kw}`, ac_kw: kw }));
   const best = suggestInverters(280, lib);
-  // one inverter can't reach 280 / 1.2 = 233 kW; two can: 150 + 125 = 275 kW is closest to 1.0
+  // one inverter can't reach 280 / 1.25 = 224 kW; two can: 150 + 125 = 275 kW is closest to 1.0
   assert.equal(best[0].label, "1 × SG150 + 1 × SG125");
   assert.equal(best[0].count, 2);
   assert.ok(Math.abs(best[0].ratio - 280 / 275) < 1e-9);
   for (const c of best) {
-    assert.ok(c.ratio >= 0.8 && c.ratio <= 1.2, c.label);
+    assert.ok(c.ratio >= 0.8 && c.ratio <= 1.25, c.label);
     assert.ok(c.count <= 3, c.label);
     // dropping the smallest inverter would break the lower AC limit
     const smallest = Math.min(...c.inverters.map((x) => lib.find((l) => l.id === x.inverter_id).ac_kw));
-    assert.ok(c.ac - smallest < 280 / 1.2, c.label);
+    assert.ok(c.ac - smallest < 280 / 1.25, c.label);
   }
   assert.deepEqual(suggestInverters(52, lib).slice(0, 2).map((c) => c.label), ["1 × SG50", "2 × SG25"]);
   assert.deepEqual(suggestInverters(null, lib), []);
@@ -438,4 +439,20 @@ test("spec slides: datasheet pages for each model without template datasheet sli
   // every slide part has a content type and no notes slide is shared
   const ct = await zip.file("[Content_Types].xml").async("string");
   for (const t of order) assert.ok(ct.includes(`PartName="/ppt/${t}"`), t);
+});
+
+test("DC/AC ratio bands, and the design summary footnote above 1.21", async () => {
+  const { ratioBand } = await import("../js/offer/quick.js");
+  const { dcacNote } = await import("../js/offer/values.js");
+  assert.deepEqual([0.79, 0.8, 1.0, 1.2, 1.21, 1.25, 1.26, null].map(ratioBand), ["bad", "ok", "ok", "ok", "high", "high", "bad", null]);
+  assert.equal(dcacNote(1.21), "");
+  assert.match(dcacNote(1.23), /^\* The DC\/AC ratio of 123 % is above 120 %\. If the client is not comfortable with this, the offer can be resubmitted/);
+  assert.match(dcacNote(1.1, [{ name: "Roof B", ratio: 1.24 }, { name: "Roof A", ratio: 1.0 }]), /^\* Roof B \(124 %\) has a DC\/AC ratio above 120 %/);
+  // the deck: an asterisk by the ratio on slide 15 and the note under its table
+  const p = { ...base, inverter_qty: 1, inverter: { ...base.inverter, ac_kw: dcKwpOf(base) / 1.23 } };
+  const d = await deck(p);
+  assert.ok(/123 %\*/.test(d.text), "asterisk by the ratio");
+  assert.ok(d.text.includes("is above 120 %. If the client is not comfortable with this"), "footnote");
+  const plain = await deck(base);
+  assert.ok(!plain.text.includes("If the client is not comfortable") && !/\d %\*/.test(plain.text));
 });

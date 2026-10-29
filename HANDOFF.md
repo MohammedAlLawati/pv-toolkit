@@ -294,9 +294,9 @@ The column is added automatically on startup.
   "Monthly Production" bar chart and scaled to the annual figure (about 1% out per month). The
   form also takes the 12 figures pasted in.
 - **Sub-systems and inverter suggestions** (`suggestInverters` in `web/js/offer/quick.js`): every
-  combination of up to two library inverter models whose DC/AC ratio is 0.8–1.2, with no inverter
+  combination of up to two library inverter models whose DC/AC ratio is 0.8–1.25 (green up to 1.2, amber above; above 1.21 the design summary slide gets a footnote), with no inverter
   that could be dropped and stay in range; ranked by number of inverters, then ratio closest to
-  1.0, then one model before two. Mohammed asked for the 0.8–1.2 limits and fewest inverters; the
+  1.0, then one model before two. Mohammed asked for the 0.8–1.25 limits (first 1.2) and fewest inverters; the
   1.0 target and the two-model cap are my choices, to confirm.
 - **3D views for slide 17** are cut from the shading report's scanned page 2 by finding the
   panels' grey rule lines (`scannedPanels` in `web/js/offer/helioscope.js`). Check on a few more
