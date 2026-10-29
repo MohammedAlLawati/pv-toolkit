@@ -48,8 +48,10 @@ export const QUICK_DEFAULTS = {
   client_logo_file_id: null,
 };
 
-// DC/AC ratio limits, for each sub-system and the whole system.
-export const DCAC_MIN = 0.8, DCAC_MAX = 1.2;
+// DC/AC ratio limits, for each sub-system and the whole system. Up to DCAC_GREEN is comfortable;
+// above it, up to DCAC_MAX, is allowed but shown in amber, and above DCAC_NOTE the deck asks the
+// client to confirm it (a footnote on the design summary slide).
+export const DCAC_MIN = 0.8, DCAC_MAX = 1.25, DCAC_GREEN = 1.2, DCAC_NOTE = 1.21;
 // Suggested combinations are ranked by how close their ratio comes to this.
 export const DCAC_TARGET = 1.0;
 
@@ -97,6 +99,8 @@ function equipmentOf(o) {
 /** DC/AC ratio, or null. */
 export const ratioOf = (dc, ac) => (isNum(dc) && isNum(ac) ? dc / ac : null);
 export const ratioOk = (r) => r !== null && r >= DCAC_MIN - 1e-9 && r <= DCAC_MAX + 1e-9;
+/** "ok" (0.8 to 1.2), "high" (above 1.2 up to 1.25) or "bad" (outside the limits); null without a ratio. */
+export const ratioBand = (r) => (r === null || r === undefined ? null : !ratioOk(r) ? "bad" : r > DCAC_GREEN + 1e-9 ? "high" : "ok");
 
 /**
  * Each sub-system with its equipment looked up and its capacities worked out, plus the totals:
