@@ -2,15 +2,16 @@
 // price per kWp, and the pictures and figures of the Helioscope reports) or from a full
 // project, with a preview of the figures that go into it. The deck itself is filled in
 // js/offer/ (see generateOffer).
-import { download, fileUrl, float, g, go, html, int, num, raw, readImage, sel, shortDate, str, toast } from "../ui.js";
+import { download, fileUrl, float, g, go, html, num, raw, readImage, sel, shortDate, str, toast } from "../ui.js";
 import * as db from "../store.js";
 import { byName, byUpdated, dcKwp, loadAll } from "../data.js";
 import { setTitle } from "../app.js";
 import { generateOffer } from "../docgen/generate.js";
 import { fmtOmr } from "../docgen/context.js";
-import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing } from "../offer/values.js";
-import { DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD, annualKwh,
-  capacities, quickMissing, subsystemIssues, suggestCode, toProject } from "../offer/quick.js";
+import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing, parseMonthly } from "../offer/values.js";
+import { DCAC_MAX, DCAC_MIN, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
+  annualKwh, capacities, quickMissing, ratioOk, suggestInverters, suggestCode, systemIssues, systemTotals, systemsOf,
+  toProject } from "../offer/quick.js";
 import { inverterOptions, moduleOptions } from "../options.js";
 
 // [project field, label, what happens without it]
@@ -190,11 +191,17 @@ ${figures(p, estimated ? "Monthly figures are the annual figure spread over a ty
 const ENERGY_SOURCE = {
   helioscope: "From the Helioscope reports.",
   annual: "Annual figure as entered; months follow a typical Oman year.",
-  monthly: "From the Helioscope reports.",
+  monthly: "From the monthly figures.",
   yield: "Estimated as DC capacity × specific yield. Add the Helioscope reports for the simulated figures.",
 };
 const KIND_NAMES = { simulation: "Simulation report", shading: "Shading report", report: "Report" };
 const CORNERS = [["tl", "↖", "Top left"], ["tr", "↗", "Top right"], ["bl", "↙", "Bottom left"], ["br", "↘", "Bottom right"]];
+// where the 12 monthly figures came from
+const MONTHLY_SOURCE = {
+  table: "Monthly figures: the AC Power (kWh) row of the \"Solar Access by Month\" table on page 2 of the shading report (read off the scanned page and checked against the annual total and the bar chart).",
+  chart: "Monthly figures: measured off the Monthly Production bar chart on page 1 of the simulation report, then scaled to the annual total, so each can be up to about 1% out. Add the shading report for the exact figures from its Solar Access by Month table, or paste them under \"Change the figures\".",
+  typed: "Monthly figures as pasted under \"Change the figures\", scaled to the annual total.",
+};
 const SLOT_SHORT = { offer_site_file_id: "Location", offer_shadow_file_id: "Shading", offer_structure_file_id: "3D left", offer_structure2_file_id: "3D right" };
 const FIELD_OF = Object.fromEntries(Object.entries(SLOT_OF).map(([field, slot]) => [slot, field]));
 
@@ -270,15 +277,17 @@ export async function quick(main, { params, query }) {
     if (!o.price_per_kwp && o.subtotal_omr && o.dc_kwp) o.price_per_kwp = Math.round((o.subtotal_omr / o.dc_kwp) * 1000) / 1000;
   } else {
     o = { ...QUICK_DEFAULTS, logo_corners: {}, subsystems: [] };
-    // start from the most recent offer's equipment and commercial settings
+    // start from the most recent offer's module and commercial settings
     const last = byUpdated(await db.list("offers"))[0];
-    if (last) for (const k of ["module_id", "inverter_id", "installation_type", "tariff_bz", "degradation_pct", "specific_yield", "price_per_kwp"]) if (last[k] !== undefined) o[k] = last[k];
+    if (last) for (const k of ["installation_type", "tariff_bz", "degradation_pct", "specific_yield", "price_per_kwp"]) if (last[k] !== undefined) o[k] = last[k];
+    const lastModule = last ? systemsOf(last)[0]?.module_id : null;
+    o.subsystems = [{ name: "", desc: "", module_id: lastModule || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null }];
     if (query.client) o.client_name = query.client;
   }
   setTitle(params.id ? `Offer · ${o.client_name}` : "New offer");
   const designTypes = [...new Set([...DESIGN_TYPES, ...(await db.getSetting("design_types", [])), o.installation_type].filter(Boolean))];
   const schedule = (o.schedule || DEFAULT_SCHEDULE).map((a) => ({ name: a.name, start: a.start, weeks: a.weeks }));
-  const subsystems = (o.subsystems || []).map((r) => ({ ...r }));
+  const subsystems = systemsOf(o).map((r) => ({ ...r, inverters: (r.inverters || []).map((x) => ({ ...x })) }));
   const corners = { ...(o.logo_corners || {}) };
   let codeEdited = !!o.reference_code && o.reference_code !== suggestCode(o.client_name);
 
@@ -318,21 +327,17 @@ export async function quick(main, { params, query }) {
   </div>
 
   <div class="panel">
-    <h2>System</h2>
-    <div class="fields">
-      <label class="wide">PV module <select name="module_id">${moduleOptions(all.modules, o.module_id, { blank: "Not in the library (type the DC capacity)" })}</select></label>
-      <label>Number of panels <input name="module_count" value="${g(o.module_count)}" inputmode="numeric"></label>
-      <label>DC capacity (kWp) <input name="dc_kwp" value="${g(o.dc_kwp)}" inputmode="decimal"><span class="hint" id="dc-how"></span></label>
-      <label class="wide">Inverter <select name="inverter_id">${inverterOptions(all.inverters, o.inverter_id, { blank: "Not in the library (type the AC capacity)" })}</select></label>
-      <label>Number of inverters <input name="inverter_qty" value="${g(o.inverter_qty)}" inputmode="numeric"></label>
-      <label>AC capacity (kW) <input name="ac_kw" value="${g(o.ac_kw)}" inputmode="decimal"><span class="hint" id="ac-how"></span></label>
+    <div class="panel-head"><h2>System</h2><span class="btns"><button type="button" class="btn small" id="ss-add">Add sub-system</button></span></div>
+    <p class="small muted">Enter each sub-system (a POC, roof or orientation) with its PV module and number of panels, then pick its inverters: the suggestions keep the DC/AC ratio between ${DCAC_MIN} and ${DCAC_MAX} with as few inverters as possible.</p>
+    ${!all.modules.length || !all.inverters.length ? html`<p class="small muted">The equipment library is empty. <a href="#/library">Load the Jinko modules and Sungrow inverters</a> to pick them here.</p>` : ""}
+    <div id="subsystems"></div>
+    <h3 class="spaced-top">Whole system</h3>
+    <div id="system-summary"></div>
+    <div class="fields spaced-top">
       <label>Structure height (m) <input name="elevation_m" value="${g(o.elevation_m)}" inputmode="decimal"></label>
       <label>Tilt (°) <input name="tilt_deg" value="${g(o.tilt_deg)}" inputmode="decimal"></label>
       <label>Azimuth (°) <input name="azimuth_deg" value="${g(o.azimuth_deg)}" inputmode="decimal" placeholder="180 = south"></label>
     </div>
-    ${!all.modules.length || !all.inverters.length ? html`<p class="small muted spaced-top">The equipment library is empty. <a href="#/library">Load the Jinko modules and Sungrow inverters</a> to pick them here.</p>` : ""}
-    <label class="check spaced-top"><input type="checkbox" name="split_system" ${o.split_system ? "checked" : ""}> Split into sub-systems (several POCs, orientations or roofs)</label>
-    <div id="subsystems"></div>
   </div>
 
   <div class="panel">
@@ -345,6 +350,7 @@ export async function quick(main, { params, query }) {
         <label>Specific yield (kWh/kWp) <input name="specific_yield" value="${g(o.specific_yield)}" inputmode="decimal" placeholder="${SPECIFIC_YIELD}"></label>
         <label>Performance ratio (%) <input name="pr_pct" value="${g(o.pr_pct)}" inputmode="decimal"></label>
         <label>Shading losses (%) <input name="shading_loss_pct" value="${g(o.shading_loss_pct)}" inputmode="decimal"><span class="hint">Over ${SHADING_LIMIT_PCT}% is flagged on slide 16</span></label>
+        <label class="wide">Monthly generation, Jan to Dec (kWh) <textarea name="monthly_text" rows="2" placeholder="Paste the 12 figures, e.g. the AC Power (kWh) row of Helioscope's Solar Access by Month table">${o.monthly_kwh ? o.monthly_kwh.map((x) => Math.round(x)).join(" ") : ""}</textarea><span class="hint" id="monthly-hint"></span></label>
       </div>
     </details>
   </div>
@@ -393,14 +399,13 @@ export async function quick(main, { params, query }) {
       client_name: str(fd, "client_name"), reference_code: str(fd, "reference_code").toUpperCase(),
       installation_type: type === "__new" ? o.installation_type : type,
       price_per_kwp: pos(fd, "price_per_kwp"), subtotal_omr: null,
-      module_id: Number(fd.get("module_id")) || null, module_count: int(fd, "module_count"),
-      inverter_id: Number(fd.get("inverter_id")) || null, inverter_qty: int(fd, "inverter_qty"),
-      dc_kwp: pos(fd, "dc_kwp"), ac_kw: pos(fd, "ac_kw"),
+      // the older single-equipment fields are replaced by the sub-systems
+      module_id: null, module_count: null, inverter_id: null, inverter_qty: null, dc_kwp: null, ac_kw: null, split_system: undefined,
       annual_gen_kwh: pos(fd, "annual_gen_kwh"), specific_yield: pos(fd, "specific_yield") ?? SPECIFIC_YIELD,
       pr_pct: pos(fd, "pr_pct"), shading_loss_pct: float(fd, "shading_loss_pct"),
       tariff_bz: float(fd, "tariff_bz") ?? 32, degradation_pct: float(fd, "degradation_pct") ?? 0.65,
       elevation_m: pos(fd, "elevation_m"), tilt_deg: float(fd, "tilt_deg"), azimuth_deg: float(fd, "azimuth_deg"),
-      split_system: fd.get("split_system") === "on", subsystems: subsystems.map((r) => ({ ...r })),
+      subsystems: subsystems.map((r) => ({ ...r, inverters: r.inverters.map((x) => ({ ...x })) })),
       schedule: schedule.map((a) => ({ ...a })), logo_corners: { ...corners },
     };
   }
@@ -413,18 +418,10 @@ export async function quick(main, { params, query }) {
   function preview() {
     const cur = read();
     const p = toProject(cur, all);
-    const { module, inverter, dc, ac } = capacities(cur, all);
-    // capacities: worked out from the library item × count, typed in otherwise
-    const dcIn = form.elements.dc_kwp, acIn = form.elements.ac_kw;
-    dcIn.readOnly = !!(module && cur.module_count);
-    acIn.readOnly = !!(inverter && cur.inverter_qty);
-    if (dcIn.readOnly) dcIn.value = g(dc);
-    if (acIn.readOnly) acIn.value = g(ac);
-    main.querySelector("#dc-how").textContent = dcIn.readOnly ? `${cur.module_count} × ${g(module.wp)} Wp` : module ? "Enter the number of panels" : "";
-    main.querySelector("#ac-how").textContent = acIn.readOnly ? `${cur.inverter_qty} × ${g(inverter.ac_kw)} kW` : inverter ? "Enter the number of inverters" : "";
+    const { dc } = capacities(cur, all);
     main.querySelector("#total").textContent = p.subtotal_omr ? `Total OMR ${fmtOmr(p.subtotal_omr)} before VAT (${num(cur.price_per_kwp, 3)} × ${num(dc)} kWp)` : "Total = price × DC kWp";
     if (!codeEdited) form.elements.reference_code.value = suggestCode(cur.client_name);
-    drawSubTotals(cur);
+    drawSystemFigures(cur);
 
     const { values: v, months, flow } = buildOfferValues(p);
     // energy: a summary of the simulated (or estimated) figures
@@ -438,7 +435,8 @@ export async function quick(main, { params, query }) {
         <div><span>Performance ratio</span><b>${cur.pr_pct ? `${num(cur.pr_pct, 1)}%` : "—"}</b><small class="muted">${cur.pr_pct ? "" : "Not in the reports yet"}</small></div>
         <div><span>Shading losses</span><b class="${cur.shading_loss_pct > SHADING_LIMIT_PCT ? "missing-text" : ""}">${cur.shading_loss_pct !== null && cur.shading_loss_pct !== undefined ? `${num(cur.shading_loss_pct, 1)}%` : "—"}</b><small class="muted">limit ${SHADING_LIMIT_PCT}%</small></div>
       </div>
-      <p class="small muted">${source ? (cur.energy_source === "helioscope" && source !== "yield" ? ENERGY_SOURCE.helioscope : ENERGY_SOURCE[source]) : "Pick the module and number of panels, or add the reports."}</p>`;
+      <p class="small muted">${source ? (cur.energy_source === "helioscope" && source !== "yield" ? ENERGY_SOURCE.helioscope : ENERGY_SOURCE[source]) : "Pick the module and number of panels, or add the reports."}
+        ${months && Array.isArray(p.monthly_kwh) ? MONTHLY_SOURCE[cur.monthly_source] || "" : months ? "Monthly figures: the annual figure spread over a typical Oman year." : ""}</p>`;
     main.querySelector("#energy-chart").innerHTML = months && Array.isArray(p.monthly_kwh) ? monthlyBars(months).toString() : "";
 
     // payback
@@ -461,67 +459,128 @@ export async function quick(main, { params, query }) {
       ? columnChart(flow.years.map((y) => y.kwh / 1000), { label: (i) => `Y${i + 1}`, fmt: (x) => num(x, 0) }).toString()
       : html`<div class="empty small">Needs the generation.</div>`.toString();
 
-    const missing = [...quickMissing(cur, all), ...(subsystemIssues(cur, all).length ? ["Sub-systems that add up to the design"] : [])];
+    const missing = [...quickMissing(cur, all), ...(systemIssues(cur, all).length ? [`DC/AC ratios within ${DCAC_MIN}–${DCAC_MAX}`] : [])];
     main.querySelector("#preview").innerHTML = html`
       ${missing.length ? html`<div class="flash warn">Still needs: ${missing.join(", ")}.</div>` : ""}
       ${deckSummary(p)}`;
   }
 
-  // ---- sub-systems
+  // ---- sub-systems: modules first, then the inverter combination
   const subBox = main.querySelector("#subsystems");
+  const invById = new Map(all.inverters.map((x) => [x.id, x]));
+  const ratioText = (r) => (r === null ? "—" : num(r, 2));
+  const blankSub = () => ({ name: "", desc: "", module_id: subsystems.at(-1)?.module_id || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null });
+  let picks = [];  // suggested combinations per sub-system, as last drawn
   function drawSubsystems() {
-    if (!form.elements.split_system.checked) { subBox.innerHTML = ""; return; }
-    subBox.innerHTML = html`<div class="table-scroll spaced-top"><table class="subsys">
-      <thead><tr><th>#</th><th>Sub-system</th><th>Description</th><th class="r">PV modules</th><th class="r">DC kWp</th><th class="r">Inverters</th><th class="r">AC kW</th><th></th></tr></thead>
-      <tbody>${subsystems.map((r, i) => html`<tr data-ss="${i}">
-        <td>${i + 1}</td>
-        <td><input data-f="name" value="${r.name || ""}" placeholder="POC ${i + 1}" aria-label="Sub-system name"></td>
-        <td><input data-f="desc" value="${r.desc || ""}" placeholder="e.g. Block A roof, 109° east" aria-label="Description"></td>
-        <td class="r"><input data-f="modules" value="${g(r.modules)}" inputmode="numeric" class="num" aria-label="PV modules"></td>
-        <td class="r num" data-out="dc"></td>
-        <td class="r"><input data-f="inverters" value="${g(r.inverters)}" inputmode="numeric" class="num" aria-label="Inverters"></td>
-        <td class="r num" data-out="ac"></td>
-        <td class="r"><button type="button" class="btn small" data-ss-del="${i}" title="Remove">×</button></td></tr>`)}</tbody>
-      <tfoot><tr><th></th><th>Total</th><th class="small muted" id="ss-design"></th><th class="r num" id="ss-mod"></th><th class="r num" id="ss-dc"></th><th class="r num" id="ss-inv"></th><th class="r num" id="ss-ac"></th><th></th></tr></tfoot>
-    </table></div>
-    <div class="btns spaced-top"><button type="button" class="btn small" id="ss-add">Add sub-system</button></div>
-    <div id="ss-check"></div>`;
-    subBox.querySelector("#ss-add").addEventListener("click", () => { subsystems.push({ name: "", desc: "", modules: null, inverters: null }); drawSubsystems(); preview(); });
-    for (const b of subBox.querySelectorAll("[data-ss-del]")) b.addEventListener("click", () => { subsystems.splice(Number(b.dataset.ssDel), 1); drawSubsystems(); preview(); });
+    const many = subsystems.length > 1;
+    subBox.innerHTML = html`${subsystems.map((r, i) => html`<div class="ss-card" data-ss="${i}">
+      <div class="ss-head"><b>${many ? `Sub-system ${i + 1}` : "System"}</b>
+        <input data-f="name" value="${r.name || ""}" placeholder="${many ? `POC ${i + 1}` : "Name (optional)"}" aria-label="Name">
+        <input data-f="desc" value="${r.desc || ""}" placeholder="Description, e.g. Block A roof, facing east" aria-label="Description" class="grow">
+        ${many ? html`<button type="button" class="btn small" data-ss-del="${i}" title="Remove this sub-system">×</button>` : ""}</div>
+      <div class="fields">
+        <label class="wide">PV module <select data-f="module_id">${moduleOptions(all.modules, r.module_id, { blank: "Not in the library (type the DC capacity)" })}</select></label>
+        <label>Number of panels <input data-f="modules" value="${g(r.modules)}" inputmode="numeric"></label>
+        <label>DC capacity (kWp) <input data-f="dc_kwp" value="${g(r.dc_kwp)}" inputmode="decimal"><span class="hint" data-out="dc-how"></span></label>
+      </div>
+      <h4>Inverters</h4>
+      ${r.inverters.length ? html`<table class="subsys"><tbody>
+        ${r.inverters.map((x, j) => html`<tr data-inv="${j}">
+          <td><select data-inv-f="inverter_id" aria-label="Inverter">${inverterOptions(all.inverters, x.inverter_id, { blank: "Choose…" })}</select></td>
+          <td class="r nowrap">× <input data-inv-f="qty" value="${g(x.qty)}" inputmode="numeric" class="num" aria-label="How many"></td>
+          <td class="r num nowrap" data-out="kw"></td>
+          <td class="r"><button type="button" class="btn small" data-inv-del="${j}" title="Remove">×</button></td></tr>`)}
+      </tbody></table>` : ""}
+      <div class="btns"><button type="button" class="btn small" data-inv-add="${i}">Add inverter model</button>
+        ${!r.inverters.length ? html`<label class="inline small">or type the AC capacity (kW) <input data-f="ac_kw" value="${g(r.ac_kw)}" inputmode="decimal" class="num"></label>` : ""}</div>
+      <div data-out="ratio"></div>
+      <div data-out="suggest"></div>
+    </div>`)}`;
+    drawSystemFigures(read());
   }
-  function drawSubTotals(cur) {
-    if (!cur.split_system || !subBox.querySelector("table")) return;
-    const { module, inverter, dc, ac } = capacities(cur, all);
-    subsystems.forEach((r, i) => {
-      const row = subBox.querySelector(`[data-ss="${i}"]`);
-      row.querySelector('[data-out="dc"]').textContent = module && r.modules ? num((r.modules * module.wp) / 1000, 2) : "—";
-      row.querySelector('[data-out="ac"]').textContent = inverter && r.inverters ? num(r.inverters * inverter.ac_kw, 1) : "—";
+
+  // only what changed is redrawn: a button replaced between press and release never gets the click
+  const setHtml = (el, markup) => { if (el.dataset.markup !== markup) { el.innerHTML = markup; el.dataset.markup = markup; } };
+  /** The worked-out parts of the sub-system cards and the whole-system summary (no redraw, so typing keeps its place). */
+  function drawSystemFigures(cur) {
+    const t = systemTotals(cur, all);
+    picks = t.rows.map((r) => (r.dc ? suggestInverters(r.dc, all.inverters) : []));
+    t.rows.forEach((r, i) => {
+      const card = subBox.querySelector(`[data-ss="${i}"]`);
+      if (!card) return;
+      const dcIn = card.querySelector('[data-f="dc_kwp"]');
+      dcIn.readOnly = !!(r.module && r.modules);
+      if (dcIn.readOnly) dcIn.value = g(+r.dc.toFixed(3));
+      card.querySelector('[data-out="dc-how"]').textContent = dcIn.readOnly ? `${r.modules} × ${g(r.module.wp)} Wp` : r.module ? "Enter the number of panels" : "";
+      card.querySelectorAll("[data-inv]").forEach((row, j) => {
+        const x = subsystems[i].inverters[j], inv = invById.get(x.inverter_id);
+        row.querySelector('[data-out="kw"]').textContent = inv && x.qty ? `${num(inv.ac_kw * x.qty, 1)} kW` : "";
+      });
+      const ok = ratioOk(r.ratio);
+      setHtml(card.querySelector('[data-out="ratio"]'), r.dc && r.ac
+        ? html`<div class="flash ${ok ? "ok" : "warn"} spaced-top">${num(r.dc, 2)} kWp DC on ${num(r.ac, 1)} kW AC: DC/AC ratio <b>${ratioText(r.ratio)}</b>${ok ? `, within ${DCAC_MIN}–${DCAC_MAX}.` : `, outside ${DCAC_MIN}–${DCAC_MAX}. Pick one of the suggestions below.`}</div>`.toString()
+        : "");
+      const mine = subsystems[i].inverters;
+      const same = (c) => c.inverters.length === mine.length && c.inverters.every((x) => mine.some((y) => y.inverter_id === x.inverter_id && y.qty === x.qty));
+      setHtml(card.querySelector('[data-out="suggest"]'), (!r.dc ? html`<p class="small muted spaced-top">Inverter suggestions appear once the DC capacity is known.</p>`
+        : !all.inverters.length ? html``
+        : picks[i].length ? html`<div class="suggest spaced-top"><span class="small muted">Suggested inverters, fewest first:</span>
+          ${picks[i].map((c, k) => html`<button type="button" class="btn small ${same(c) ? "on" : ""}" data-pick="${i}:${k}">${c.label}<small>${num(c.ac, 0)} kW · DC/AC ${num(c.ratio, 2)}</small></button>`)}</div>`
+        : html`<p class="small missing-text spaced-top">No combination of up to two inverter models in the library gives a DC/AC ratio within ${DCAC_MIN}–${DCAC_MAX}.</p>`).toString());
     });
-    const mods = subsystems.reduce((t, r) => t + (r.modules || 0), 0), invs = subsystems.reduce((t, r) => t + (r.inverters || 0), 0);
-    subBox.querySelector("#ss-mod").textContent = mods;
-    subBox.querySelector("#ss-inv").textContent = invs;
-    subBox.querySelector("#ss-dc").textContent = module ? num((mods * module.wp) / 1000, 2) : "—";
-    subBox.querySelector("#ss-ac").textContent = inverter ? num(invs * inverter.ac_kw, 1) : "—";
-    subBox.querySelector("#ss-design").textContent = `Design: ${cur.module_count ?? "—"} modules, ${dc ? num(dc, 2) : "—"} kWp; ${cur.inverter_qty ?? "—"} inverters, ${ac ? num(ac, 1) : "—"} kW`;
-    const issues = subsystemIssues(cur, all);
-    subBox.querySelector("#ss-check").innerHTML = issues.length
-      ? html`<div class="flash warn spaced-top">${issues.map((t) => html`<div>${t}</div>`)}</div>`
-      : html`<div class="flash ok spaced-top">The sub-systems add up to the design. They go in a table after the design summary slide.</div>`;
+
+    const issues = systemIssues(cur, all), ok = ratioOk(t.ratio), rep = cur.report_design;
+    main.querySelector("#system-summary").innerHTML = html`<div class="summary">
+      <div><span>DC capacity</span><b>${t.dc ? `${num(t.dc, 2)} kWp` : "—"}</b><small class="muted">${t.modules ? `${num(t.modules, 0)} PV modules` : ""}</small></div>
+      <div><span>AC capacity</span><b>${t.ac ? `${num(t.ac, 1)} kW` : "—"}</b><small class="muted">${t.inverterQty ? `${t.inverterQty} inverter${t.inverterQty === 1 ? "" : "s"}` : ""}</small></div>
+      <div><span>DC/AC ratio</span><b class="${t.ratio !== null && !ok ? "missing-text" : ""}">${ratioText(t.ratio)}</b><small class="muted">limits ${DCAC_MIN}–${DCAC_MAX}</small></div>
+      <div><span>Sub-systems</span><b>${t.rows.length}</b><small class="muted">${t.rows.length > 1 || t.inverterModels.length > 1 ? "Breakdown slide included" : ""}</small></div>
+    </div>
+    ${issues.length ? html`<div class="flash warn">${issues.map((x) => html`<div>${x}</div>`)}</div>`
+      : t.dc && t.ac ? html`<div class="flash ok">Every DC/AC ratio is within ${DCAC_MIN}–${DCAC_MAX}.</div>` : ""}
+    ${rep?.modules && t.modules && rep.modules !== t.modules ? html`<div class="flash warn">The simulation report has ${num(rep.modules, 0)} PV modules; the sub-systems add up to ${num(t.modules, 0)}.</div>` : ""}`;
   }
+
+  const subOf = (el) => subsystems[Number(el.closest("[data-ss]").dataset.ss)];
+  const wholeNum = (v) => { const n = Math.round(Number(v)); return String(v).trim() && Number.isFinite(n) && n > 0 ? n : null; };
+  const posNum = (v) => { const n = Number(v); return String(v).trim() && Number.isFinite(n) && n > 0 ? n : null; };
   subBox.addEventListener("input", (e) => {
-    const row = e.target.closest("[data-ss]");
-    if (!row) return;
-    const r = subsystems[Number(row.dataset.ss)], f = e.target.dataset.f;
-    if (f === "name" || f === "desc") r[f] = e.target.value;
-    else { const v = Math.round(Number(e.target.value)); r[f] = e.target.value.trim() && Number.isFinite(v) && v >= 0 ? v : null; }
+    const el = e.target;
+    if (!el.closest("[data-ss]") || el.tagName === "SELECT") return;
+    const r = subOf(el);
+    if (el.dataset.f === "name" || el.dataset.f === "desc") r[el.dataset.f] = el.value;
+    else if (el.dataset.f === "modules") r.modules = wholeNum(el.value);
+    else if (el.dataset.f === "dc_kwp") r.dc_kwp = posNum(el.value);
+    else if (el.dataset.f === "ac_kw") r.ac_kw = posNum(el.value);
+    else if (el.dataset.invF === "qty") r.inverters[Number(el.closest("[data-inv]").dataset.inv)].qty = wholeNum(el.value);
   });
-  form.elements.split_system.addEventListener("change", (e) => {
-    if (e.target.checked && !subsystems.length) {
-      const cur = read();
-      subsystems.push({ name: "POC 1", desc: "", modules: cur.module_count, inverters: cur.inverter_qty },
-                      { name: "POC 2", desc: "", modules: null, inverters: null });
-    }
+  subBox.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.tagName !== "SELECT" || !el.closest("[data-ss]")) return;
+    const r = subOf(el), id = Number(el.value) || null;
+    if (el.dataset.f === "module_id") r.module_id = id;
+    else if (el.dataset.invF === "inverter_id") r.inverters[Number(el.closest("[data-inv]").dataset.inv)].inverter_id = id;
     drawSubsystems();
+  });
+  subBox.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.ssDel !== undefined) subsystems.splice(Number(b.dataset.ssDel), 1);
+    else if (b.dataset.invAdd !== undefined) subsystems[Number(b.dataset.invAdd)].inverters.push({ inverter_id: null, qty: 1 });
+    else if (b.dataset.invDel !== undefined) subOf(b).inverters.splice(Number(b.dataset.invDel), 1);
+    else if (b.dataset.pick) {
+      const [i, k] = b.dataset.pick.split(":").map(Number);
+      subsystems[i].inverters = picks[i][k].inverters.map((x) => ({ ...x }));
+      subsystems[i].ac_kw = null;
+    } else return;
+    drawSubsystems();
+    preview();
+  });
+  main.querySelector("#ss-add").addEventListener("click", () => {
+    subsystems.push(blankSub());
+    drawSubsystems();
+    preview();
+    subBox.querySelector(`[data-ss="${subsystems.length - 1}"] [data-f="name"]`)?.focus();
   });
   // ---- pictures
   function drawPics() {
@@ -605,31 +664,50 @@ export async function quick(main, { params, query }) {
   async function applyReports() {
     const found = main.querySelector("#report-found");
     try {
-      const { parseReport, monthsFromBars } = await import("../offer/helioscope.js");
+      const { parseReport, monthsFromBars, monthsAgree } = await import("../offer/helioscope.js");
       for (const x of [...report.images, ...report.pages]) URL.revokeObjectURL(x.url);
       report.images = []; report.pages = [];
-      let text = "", bars = null;
+      let text = "", bars = null, table = null;
       for (const r of [loaded.simulation, loaded.shading].filter(Boolean)) {
         report.images.push(...r.images.map((im) => ({ ...im, kind: r.kind, url: URL.createObjectURL(im.blob) })));
         report.pages.push(...r.pages.map((pg) => ({ ...pg, kind: r.kind, url: URL.createObjectURL(pg.blob) })));
         text += r.text + "\n";
         bars ||= r.bars;
+        table ||= r.table;
       }
       const f = parseReport(text, { modules: all.modules, inverters: all.inverters });
-      const monthly = monthsFromBars(bars, f.annual_gen_kwh);
+      // monthly: the Solar Access by Month table (as text, or read off the scan and checked against
+      // the annual figure and the bar chart), else measured off the bar chart
+      const fromBars = monthsFromBars(bars, f.annual_gen_kwh);
+      const tableOk = !f.monthly_kwh && monthsAgree(table, fromBars, f.annual_gen_kwh);
+      const exact = f.monthly_kwh || (tableOk ? table : null);
+      const monthly = exact || fromBars;
       // the reports' figures replace what's in the form (all can be edited afterwards)
       const filled = [];
       const put = (name, value, label) => { if (value !== undefined && value !== null) { setField(name, value); filled.push(label); } };
-      put("module_id", f.module_id, "module");
-      put("module_count", f.module_count, `${f.module_count} panels`);
-      put("inverter_id", f.inverter_id, "inverter");
-      put("inverter_qty", f.inverter_qty, `${f.inverter_qty} inverters`);
-      if (!f.module_id) put("dc_kwp", f.dc_kwp, `${num(f.dc_kwp)} kWp DC`);
-      if (!f.inverter_id) put("ac_kw", f.ac_kw, `${num(f.ac_kw)} kW AC`);
+      // the design in the report: one sub-system, unless the system has already been split
+      if (f.module_count || f.dc_kwp) o.report_design = { modules: f.module_count || null, dc_kwp: f.dc_kwp || null, ac_kw: f.ac_kw || null };
+      if (subsystems.length <= 1 && (f.module_count || f.dc_kwp || f.inverter_qty)) {
+        const r = subsystems[0] || blankSub();
+        Object.assign(r, {
+          module_id: f.module_id || null, modules: f.module_id ? f.module_count || null : null, dc_kwp: f.module_id ? null : f.dc_kwp || null,
+          inverters: f.inverter_id && f.inverter_qty ? [{ inverter_id: f.inverter_id, qty: f.inverter_qty }] : [],
+          ac_kw: f.inverter_id ? null : f.ac_kw || null,
+        });
+        subsystems.splice(0, subsystems.length, r);
+        filled.push(...[f.module_count && `${f.module_count} panels`, f.inverter_qty && `${f.inverter_qty} × ${f.inverter_model}`].filter(Boolean));
+        drawSubsystems();
+      }
+      const kept = subsystems.length > 1 ? " Your sub-systems were kept as entered and are checked against the report's panel count." : "";
       put("annual_gen_kwh", f.annual_gen_kwh, `${num(f.annual_gen_kwh, 0)} kWh a year`);
       put("specific_yield", f.specific_yield, `${num(f.specific_yield, 1)} kWh/kWp`);
       put("pr_pct", f.pr_pct, `PR ${num(f.pr_pct, 1)}%`);
-      if (monthly) { o.monthly_kwh = monthly.map((x) => Math.round(x)); filled.push("monthly generation"); }
+      if (monthly) {
+        o.monthly_kwh = monthly.map((x) => Math.round(x * 10) / 10);
+        o.monthly_source = exact ? "table" : "chart";
+        form.elements.monthly_text.value = o.monthly_kwh.map((x) => Math.round(x)).join(" ");
+        filled.push(exact ? "monthly generation (Solar Access by Month table)" : "monthly generation (read off the chart)");
+      }
       put("shading_loss_pct", f.shading_loss_pct, `${num(f.shading_loss_pct, 1)}% shading losses`);
       if (f.annual_gen_kwh) o.energy_source = "helioscope";
       put("tilt_deg", f.tilt_deg, "tilt");
@@ -644,7 +722,7 @@ export async function quick(main, { params, query }) {
       const notInLibrary = [f.module_model && !f.module_id && `module ${f.module_model}`, f.inverter_model && !f.inverter_id && `inverter ${f.inverter_model}`].filter(Boolean);
       found.innerHTML = html`
         <div class="flash ${filled.length ? "ok" : "warn"} spaced-top">${filled.length ? `Filled in from the reports: ${filled.join(", ")}.` : "No system figures found in these reports; fill them in by hand."}
-          ${set.length ? ` Pictures: ${set.join(", ")}.` : ""}</div>
+          ${set.length ? ` Pictures: ${set.join(", ")}.` : ""}${kept}</div>
         ${notInLibrary.length ? html`<div class="flash warn">The ${notInLibrary.join(" and ")} named in the report isn't in the equipment library, so the capacity was typed in instead. <a href="#/library">Add it to the library</a> to get its spec slide.</div>` : ""}
         ${f.shading_loss_pct > SHADING_LIMIT_PCT ? html`<div class="flash warn">Shading losses in the report are ${num(f.shading_loss_pct, 1)}%, above ${SHADING_LIMIT_PCT}%.</div>` : ""}`;
       drawPics();
@@ -785,8 +863,9 @@ export async function quick(main, { params, query }) {
   async function save() {
     const cur = read();
     if (!cur.reference_code) cur.reference_code = suggestCode(cur.client_name);
-    const { dc, ac } = capacities(cur, all);
-    cur.dc_kwp = dc; cur.ac_kw = ac;  // kept for the list and older code
+    // whole-system figures kept on the record for the offers list
+    const t = systemTotals(cur, all);
+    Object.assign(cur, { dc_kwp: t.dc, ac_kw: t.ac });
     for (const [key] of IMAGE_KEYS) {
       const pic = pics[key];
       if (pic && !pic.id) {
@@ -802,6 +881,12 @@ export async function quick(main, { params, query }) {
     return o;
   }
 
+  form.elements.monthly_text.addEventListener("input", (e) => {
+    const vals = parseMonthly(e.target.value);
+    const hint = main.querySelector("#monthly-hint");
+    if (vals) { o.monthly_kwh = vals; o.monthly_source = "typed"; hint.textContent = `Total ${num(vals.reduce((a, b) => a + b, 0), 0)} kWh`; }
+    else hint.textContent = e.target.value.trim() ? "Needs 12 figures" : "";
+  });
   form.addEventListener("input", preview);
   form.addEventListener("change", preview);
   form.addEventListener("submit", (e) => e.preventDefault());

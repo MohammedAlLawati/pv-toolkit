@@ -1,8 +1,9 @@
 // Helioscope reports (PDF), read in the browser: the system figures in their text, the
 // monthly production read off the bar chart, the pictures placed on each page (cut from the
 // rendered page, so they come out the right way up), the two 3D angle views on the shading
-// report's scanned page, and each page as a whole, for cropping. pdf.js is loaded only when
-// a report is opened.
+// report's scanned page, the monthly AC energy in that page's "Solar Access by Month" table
+// (text recognition with tesseract.js), and each page as a whole, for cropping. pdf.js and
+// tesseract.js are loaded only when a report is opened.
 //
 // HTC uses two reports: the simulation ("Annual Production Report", whose "Detailed Layout"
 // goes on the location slide) and the shading report ("Shading Report", whose "Shading
@@ -13,6 +14,8 @@ const WORKER = new URL("../../vendor/pdfjs/pdf.worker.min.mjs", import.meta.url)
 const MIN_PX = 250;        // smaller pictures are logos and icons
 const MAX_PAGE_SHARE = 0.8; // a picture covering most of the page is a scanned page: crop it instead
 const PAGE_PX = 2400;      // rendered page width
+const TESS = new URL("../../vendor/tesseract/", import.meta.url).href;
+const TABLE_SHARE = 0.24;  // the Solar Access by Month table sits in the top quarter of the scanned page
 
 let lib = null;
 async function pdfjs() {
@@ -111,6 +114,13 @@ export function parseReport(text, library = { modules: [], inverters: [] }) {
   }
   // else DC capacity ÷ module rating
   if (!out.module_count && out.dc_kwp && out.module_wp) out.module_count = Math.round((out.dc_kwp * 1000) / out.module_wp);
+
+  // "Solar Access by Month" table (shading report): the AC energy of each month, exact
+  m = t.match(/AC\s*Power\s*\(\s*kWh\s*\)((?:\s*[\d,]+(?:\.\d+)?){12})/i);
+  if (m) {
+    const months = m[1].trim().split(/\s+/).map(numberIn);
+    if (months.every((x) => x > 0)) out.monthly_kwh = months;
+  }
 
   // the field segment with the most power gives the tilt and orientation
   let best = null;
@@ -246,9 +256,10 @@ async function cut(src, x, y, w, h) {
 }
 
 /**
- * Open a report. Returns { name, kind, figures, bars, images: [{blob, width, height, corner, page, slot}],
+ * Open a report. Returns { name, kind, figures, bars, table, images: [{blob, width, height, corner, page, slot}],
  * pages: [{blob, width, height, page}] }. `kind` is "shading", "simulation" or "report";
- * `bars` is the monthly production read off the chart (12 numbers) or null.
+ * `bars` is the monthly production read off the chart (12 numbers) or null; `table` is the AC
+ * Power row of the scanned Solar Access by Month table (12 kWh figures, unchecked) or null.
  * `onProgress(message)` is called as pages are read.
  */
 export async function readReport(file, onProgress = () => {}) {
@@ -261,7 +272,7 @@ export async function readReport(file, onProgress = () => {}) {
   const kind = /Shading Report/i.test(text) ? "shading" : /Production Report/i.test(text) ? "simulation" : "report";
 
   const images = [], pages = [];
-  let bars = null;
+  let bars = null, table = null;
   for (let n = 1; n <= pdf.numPages; n++) {
     onProgress(`${file.name}: page ${n} of ${pdf.numPages}…`);
     const page = await pdf.getPage(n);
@@ -295,11 +306,59 @@ export async function readReport(file, onProgress = () => {}) {
     if (kind === "shading" && pageTexts[n - 1].trim().length < 20) {
       const panels = scannedPanels(ctx);
       for (const [i, r] of panels.entries()) images.push({ ...(await cut(canvas, r.x, r.y, r.w, r.h)), page: n, slot: i ? "structure2" : "structure" });
+      table ||= await readTable(canvas, onProgress);
     }
     page.cleanup();
   }
   await pdf.destroy();
-  return { name: file.name, kind, figures: parseReport(text), text, bars, images, pages };
+  return { name: file.name, kind, figures: parseReport(text), text, bars, table, images, pages };
+}
+
+/**
+ * The 12 figures of the "AC Power (kWh)" row in recognised text (the scanned Solar Access by
+ * Month table), or null. Helioscope prints each with one decimal ("67,892.3"); recognition often
+ * drops or swaps the separators ("67,8923"), so a figure is its digits ÷ 10.
+ */
+export function acPowerRow(text) {
+  const line = String(text).split("\n").find((l) => /AC\s*Power/i.test(l));
+  if (!line) return null;
+  const vals = line.replace(/^.*?kWh\s*\)?/i, "").trim().split(/\s+/).map((tok) => tok.replace(/[^\d]/g, ""))
+    .filter(Boolean).map((digits) => Number(digits) / 10);
+  return vals.length === 12 && vals.every((v) => v > 0) ? vals : null;
+}
+
+/**
+ * Whether recognised monthly figures can be trusted: they add up to the annual figure (within 1%)
+ * and each month matches the bar chart's shape (within 4%). Without those to check against, no.
+ */
+export function monthsAgree(months, barMonths, annualKwh) {
+  if (!months || months.length !== 12) return false;
+  const sum = months.reduce((a, b) => a + b, 0);
+  if (!annualKwh || Math.abs(sum - annualKwh) > 0.01 * annualKwh) return false;
+  if (!barMonths) return false;
+  return months.every((m, i) => Math.abs(m - barMonths[i]) <= 0.04 * barMonths[i]);
+}
+
+/** Read the scanned table's AC Power row off the top of the page (null when it can't). */
+async function readTable(canvas, onProgress) {
+  try {
+    onProgress("Reading the Solar Access by Month table…");
+    const h = Math.round(canvas.height * TABLE_SHARE);
+    const top = canvasOf(canvas.width, h);
+    top.getContext("2d").drawImage(canvas, 0, 0, canvas.width, h, 0, 0, canvas.width, h);
+    const tess = await import(`${TESS}tesseract.esm.min.js`);
+    const createWorker = tess.createWorker || tess.default.createWorker;
+    const worker = await createWorker("eng", 1, { workerPath: `${TESS}worker.min.js`, corePath: `${TESS}core`, langPath: `${TESS}lang`,
+                                                  workerBlobURL: false, gzip: true, cacheMethod: "none" });
+    try {
+      await worker.setParameters({ tessedit_pageseg_mode: "6" });
+      const { data } = await worker.recognize(top);
+      return acPowerRow(data.text);
+    } finally { await worker.terminate(); }
+  } catch (err) {
+    console.warn("Solar Access table not read:", err);
+    return null;
+  }
 }
 
 /** Cut a rectangle (in image pixels) out of an image blob. */

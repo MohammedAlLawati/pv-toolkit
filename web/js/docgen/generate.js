@@ -73,6 +73,7 @@ export async function generateOffer(p) {
   const out = await renderPptx(await template("offer_deck.pptx"), {
     values, months, flow, subsystems,
     moduleModel: p.module?.model || "", inverterModel: p.inverter?.model || "",
+    moduleModels: p.module_models || [], inverterModels: p.inverter_models || [],
     schedule: p.schedule || null,
     images: await offerImages(p),
   });

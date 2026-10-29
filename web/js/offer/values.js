@@ -118,17 +118,20 @@ export function degradationText(deg) {
 }
 
 /**
- * Sub-systems (POCs, roofs, orientations) as table rows, with their totals:
- * p.subsystems = [{ name, desc, modules, inverters }], counts of the main module and inverter.
+ * Sub-systems (POCs, roofs, orientations) as table rows, with their totals. p.subsystems holds the
+ * rows of quick.systemTotals: [{ name, desc, module, modules, dc, invs: [{ inverter, qty }], ac }].
  */
 export function subsystemTable(p) {
   const list = Array.isArray(p.subsystems) ? p.subsystems : [];
-  const wp = p.module?.wp, kw = p.inverter?.ac_kw;
   const rows = list.map((r) => ({
-    name: r.name || "", desc: r.desc || "", modules: isNum(r.modules) ? r.modules : 0, inverters: isNum(r.inverters) ? r.inverters : 0,
-  })).map((r) => ({ ...r, dc: wp ? (r.modules * wp) / 1000 : null, ac: kw ? r.inverters * kw : null }));
+    name: r.name || "", desc: r.desc || "", module: r.module?.model || "",
+    modules: isNum(r.modules) && r.module ? r.modules : null, dc: isNum(r.dc) ? r.dc : null, ac: isNum(r.ac) ? r.ac : null,
+    inverters: (r.invs || []).map((x) => `${x.qty} × ${x.inverter.model}`).join(" + "),
+    count: (r.invs || []).reduce((t, x) => t + x.qty, 0),
+  })).map((r) => ({ ...r, ratio: r.dc && r.ac ? r.dc / r.ac : null }));
   const sum = (k) => rows.reduce((t, r) => t + (r[k] || 0), 0);
-  const totals = { modules: sum("modules"), inverters: sum("inverters"), dc: wp ? sum("dc") : null, ac: kw ? sum("ac") : null };
+  const dc = sum("dc"), ac = sum("ac");
+  const totals = { modules: sum("modules"), inverters: sum("count"), dc, ac, ratio: dc && ac ? dc / ac : null };
   return { rows, totals };
 }
 
@@ -176,8 +179,12 @@ export function buildOfferValues(p, today = new Date()) {
   v.ROI = flow?.roi ? flow.roi.toFixed(1) : "";
 
   const ss = subsystemTable(p);
-  Object.assign(v, { SS_TotModules: n0(ss.totals.modules), SS_TotInverters: n0(ss.totals.inverters),
-                     SS_TotDC: fmtNum(ss.totals.dc, 2), SS_TotAC: fmtNum(ss.totals.ac, 1) });
+  Object.assign(v, { SS_TotModules: n0(ss.totals.modules), SS_TotInverters: `${n0(ss.totals.inverters)} inverters`,
+                     SS_TotDC: fmtNum(ss.totals.dc, 2), SS_TotAC: fmtNum(ss.totals.ac, 1), SS_TotRatio: fmtNum(ss.totals.ratio, 2) });
+  // a system with several inverter models names them all
+  if (p.inverter_mix) v.InverterMix = p.inverter_mix;
+  else v.InverterMix = inv.model ? `${s(p.inverter_qty || "")} × ${fmtG(inv.ac_kw)}kW (${inv.model})` : "";
+  if (p.inverter_makes) v.InverterMake = p.inverter_makes;
 
   const eq = (k, dp = 0) => (annual ? fmtNum(annual * PER_KWH[k], dp, true) : "");
   Object.assign(v, { CO2Tonnes: eq("co2_t"), Homes: eq("homes"), GasGallons: eq("gallons"),
@@ -197,8 +204,8 @@ export function buildOfferValues(p, today = new Date()) {
     S_iscpm: s(inv.mppt_iscs || fmtG(inv.max_isc_per_mppt)), S_effi: s(fmtG(inv.max_eff_pct)),
     S_topo: s(inv.topology), S_ip: s(inv.ip_rating), S_dims: s(inv.dimensions), S_wti: s(fmtG(inv.weight_kg)),
   });
-  const subsystems = ss.rows.map((r) => ({ name: r.name, desc: r.desc, modules: n0(r.modules), dc: fmtNum(r.dc, 2),
-                                          inverters: n0(r.inverters), ac: fmtNum(r.ac, 1) }));
+  const subsystems = ss.rows.map((r, i) => ({ name: [r.name || `Sub-system ${i + 1}`, r.desc].filter(Boolean).join(": "),
+    module: r.module, modules: n0(r.modules), dc: fmtNum(r.dc, 2), inverters: r.inverters, ac: fmtNum(r.ac, 1), ratio: fmtNum(r.ratio, 2) }));
   return { values: v, months, estimated, flow, annual, dc, ac, subsystems };
 }
 

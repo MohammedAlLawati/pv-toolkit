@@ -5,7 +5,7 @@
 //   offer:ds_module:<model> / offer:ds_inverter:<model>  datasheet slides of one model
 //   offer:spec_module / offer:spec_inverter             generic spec tables (used otherwise)
 //   offer:needs:<image>                                  dropped when that image is missing
-//   offer:needs:subsystems                               dropped unless the system is split
+//   offer:needs:subsystems                               dropped unless there are several sub-systems or inverter models
 // Logos (p:pic with descr "logo:<key>") are moved to a corner of image <key>.
 // Schedule tables (a W1, W2, ... header row) get one row per activity, shaded in its weeks.
 // Charts: chart1 monthly energy (MWh), chart2 25-year energy + loss, chart3 cumulative cash flow.
@@ -291,7 +291,7 @@ export function fillSchedule(root, schedule) {
 
 /**
  * The sub-system table: the row holding {{SS_Name}} is copied once per sub-system
- * ([{ name, desc, modules, dc, inverters, ac }], already formatted) and then removed.
+ * ([{ name, module, modules, dc, inverters, ac, ratio }], already formatted) and then removed.
  */
 export function fillSubsystems(root, rows) {
   for (const tr of byTag(root, "a", "tr")) {
@@ -299,7 +299,7 @@ export function fillSubsystems(root, rows) {
     for (const r of rows) {
       const copy = tr.cloneNode(true);
       const tcs = byTag(copy, "a", "tc");
-      [r.name, r.desc, r.modules, r.dc, r.inverters, r.ac].forEach((text, i) => tcs[i] && setCellText(tcs[i], text ?? ""));
+      [r.name, r.module, r.modules, r.dc, r.inverters, r.ac, r.ratio].forEach((text, i) => tcs[i] && setCellText(tcs[i], text ?? ""));
       tr.parentNode.insertBefore(copy, tr);
     }
     tr.parentNode.removeChild(tr);
@@ -310,11 +310,12 @@ export function fillSubsystems(root, rows) {
 // ---- the deck ----------------------------------------------------------------------------
 
 /** Which slides to keep, from their tags and the project's equipment and images. */
-export function keepSlide(tag, { moduleModel, inverterModel, images, flags, dsModules, dsInverters }) {
+export function keepSlide(tag, { moduleModel, inverterModel, moduleModels, inverterModels, images, flags, dsModules, dsInverters }) {
   const [, kind, arg] = (tag || "").split(":");
   if (!tag.startsWith("offer:")) return true;
-  if (kind === "ds_module") return arg === moduleModel;
-  if (kind === "ds_inverter") return arg === inverterModel;
+  // a system with several models keeps the datasheet slides of each
+  if (kind === "ds_module") return arg === moduleModel || !!moduleModels?.includes(arg);
+  if (kind === "ds_inverter") return arg === inverterModel || !!inverterModels?.includes(arg);
   if (kind === "spec_module") return !dsModules.has(moduleModel);
   if (kind === "spec_inverter") return !dsInverters.has(inverterModel);
   if (kind === "needs") return !!images[arg] || !!flags?.[arg];
@@ -324,8 +325,8 @@ export function keepSlide(tag, { moduleModel, inverterModel, images, flags, dsMo
 /**
  * @param template ArrayBuffer of offer_deck.pptx
  * @param input { values, months (12 kWh or null), flow (from cashFlow or null),
- *                moduleModel, inverterModel, schedule ([{ name, start, weeks }] or null),
- *                subsystems ([{ name, desc, modules, dc, inverters, ac }] as text, or none),
+ *                moduleModel, inverterModel, moduleModels, inverterModels (all models used), schedule ([{ name, start, weeks }] or null),
+ *                subsystems ([{ name, module, modules, dc, inverters, ac, ratio }] as text, or none),
  *                images: { site, shadow, structure, structure2 }, each { bytes, ext, width, height, logoCorner? } }
  * @returns { bytes, missing }
  */
@@ -343,7 +344,8 @@ export async function renderPptx(template, input) {
   const dsModules = new Set(tags.filter((t) => t.startsWith("offer:ds_module:")).map((t) => t.split(":")[2]));
   const dsInverters = new Set(tags.filter((t) => t.startsWith("offer:ds_inverter:")).map((t) => t.split(":")[2]));
   const subsystems = input.subsystems || [];
-  const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, images, dsModules, dsInverters,
+  const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, moduleModels: input.moduleModels,
+                inverterModels: input.inverterModels, images, dsModules, dsInverters,
                 flags: { subsystems: subsystems.length > 0 } };
 
   const lastWeek = input.schedule?.length ? Math.max(...input.schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0))) : null;
