@@ -45,6 +45,7 @@ export const QUICK_DEFAULTS = {
   tariff_bz: 32, degradation_pct: 0.65, vat_pct: 5,
   schedule: null, logo_corners: {},
   offer_site_file_id: null, offer_shadow_file_id: null, offer_structure_file_id: null, offer_structure2_file_id: null,
+  client_logo_file_id: null,
 };
 
 // DC/AC ratio limits, for each sub-system and the whole system.
@@ -231,6 +232,20 @@ export function inverterMix(t) {
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] || "";
 }
 
+/** Each module and inverter model in the system with how many are used, modules first, most used first. */
+function componentList(t) {
+  const tally = new Map();
+  const add = (kind, item, n) => {
+    const key = `${kind}:${item.model}`, e = tally.get(key) || { kind, item, count: 0 };
+    e.count += n; tally.set(key, e);
+  };
+  for (const r of t.rows) {
+    if (r.module && isNum(r.modules)) add("module", r.module, r.modules);
+    for (const x of r.invs) add("inverter", x.inverter, x.qty);
+  }
+  return [...tally.values()].sort((a, b) => (a.kind === b.kind ? b.count - a.count : a.kind === "module" ? -1 : 1));
+}
+
 /** The project-shaped record a quick offer stands for. `lookup` = { module, inverter, client } maps from data.loadAll(). */
 export function toProject(o, lookup = {}) {
   const t = systemTotals(o, lookup);
@@ -251,6 +266,7 @@ export function toProject(o, lookup = {}) {
     installation_type: main.installation_type || null, elevation_m: main.elevation_m ?? null,
     tilt_deg: main.tilt_deg ?? null, azimuth_deg: main.azimuth_deg ?? null,
     installation_mix: types.length > 1 ? types.join(" and ") : "",
+    components: componentList(t),
     inverter_mix: inverterMix(t), inverter_makes: makes.join(" / "),
     module_models: t.moduleModels, inverter_models: t.inverterModels,
     subtotal_omr: subtotal(o, dc),

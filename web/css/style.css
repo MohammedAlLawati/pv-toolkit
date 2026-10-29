@@ -309,6 +309,9 @@ h3 { font-size: 13px; margin: 14px 0 2px; }
 .ss-card label.inline { display: inline-flex; gap: 6px; align-items: center; }
 .ss-card label.inline input { width: 90px; font: inherit; padding: 3px 5px; text-align: right; }
 .nowrap { white-space: nowrap; }
+.client-logo { display: flex; flex-direction: column; gap: 6px; }
+.client-logo .logo-frame { height: 64px; display: flex; align-items: center; justify-content: flex-start; }
+.client-logo .logo-frame img { max-height: 64px; max-width: 200px; object-fit: contain; }
 .suggest { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .suggest .btn { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.3; text-align: left; }
 .suggest .btn small { font-weight: 400; opacity: .75; }

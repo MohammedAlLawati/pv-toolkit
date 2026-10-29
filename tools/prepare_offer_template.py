@@ -10,6 +10,8 @@ The browser fills the result (web/js/offer/). This script:
   (a table of the library values, used when the template has no datasheet slides);
 - adds image slots (p:pic with descr "img:<key>") for the site, shadow and two structure (3D view)
   pictures, and tags the HTC logos that sit on them (descr "logo:<key>");
+- puts "Client: {{Name}}" and a client logo slot on the cover, and adds a components slide (pictures
+  of the module and inverter models used, tagged "offer:needs:components") after slide 18;
 - adds a sub-system breakdown slide after the design summary (tagged "offer:needs:subsystems": mounting,
   modules, inverter combination and DC/AC ratio of each sub-system);
 - turns the shadow slide's three paragraphs into {{ShadeP1..3}} (they change when shading is high);
@@ -369,6 +371,45 @@ def subsystem_slide(pkg: Pkg, n: int) -> None:
     xfrm.find(q("a:ext")).set("cy", str(sum(int(tr.get("h")) for tr in tbl.findall(q("a:tr")))))
 
 
+# The components slide: a picture and caption per module / inverter model used, in up to
+# COMPONENT_SLOTS columns (the browser spreads the ones in use across the width).
+COMPONENT_SLOTS = 4
+
+
+def caption(slide, x, y, w, h, name: str, lines) -> None:
+    """A centred text box: a bold first line, then smaller green lines."""
+    sp = etree.fromstring(f"""<p:sp xmlns:p="{NS['p']}" xmlns:a="{NS['a']}">
+  <p:nvSpPr><p:cNvPr id="{max_shape_id(slide) + 1}" name="{name}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x="{emu(x)}" y="{emu(y)}"/><a:ext cx="{emu(w)}" cy="{emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>
+  <p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/></p:txBody>
+</p:sp>""")
+    body = sp.find(q("p:txBody"))
+    for i, text in enumerate(lines):
+        para = etree.SubElement(body, q("a:p"))
+        etree.SubElement(para, q("a:pPr"), algn="ctr")
+        r = etree.SubElement(para, q("a:r"))
+        rpr = etree.SubElement(r, q("a:rPr"), lang="en-US", sz="1100" if i == 0 else "1000", b="1" if i == 0 else "0", dirty="0")
+        fill = etree.SubElement(rpr, q("a:solidFill"))
+        etree.SubElement(fill, q("a:srgbClr"), val="404040" if i == 0 else "2E7D32")
+        etree.SubElement(r, q("a:t")).text = text
+    slide.find(q("p:cSld")).find(q("p:spTree")).append(sp)
+
+
+def components_slide(pkg: Pkg, n: int) -> None:
+    """A copy of the first datasheet slide, emptied, with a picture slot and caption per component."""
+    clone_slide(pkg, 19, n, after_slide=18)
+    slide = pkg.slide(n)
+    tag_slide(slide, "offer:needs:components")
+    for name in ("Picture 17", "Picture 2"):
+        remove_shape(pkg, n, name)
+    set_para(para_with(slide, "PV Module Specification from Manufacturer"), "Selected Components for the Proposed System")
+    col = 9.0 / COMPONENT_SLOTS
+    for k in range(1, COMPONENT_SLOTS + 1):
+        x = 0.5 + (k - 1) * col
+        add_image_slot(pkg, n, f"comp{k}", x + 0.15, 1.25, col - 0.3, 2.65)
+        caption(slide, x + 0.05, 4.0, col - 0.1, 0.85, f"Component caption {k}", [f"{{{{Comp{k}Name}}}}", f"{{{{Comp{k}Role}}}}"])
+
+
 def copy_chart(pkg: Pkg, src: int, new: int) -> None:
     """Copy a chart with its own style and colour parts (PowerPoint expects one set per chart)."""
     pkg.put(f"ppt/charts/chart{new}.xml", pkg.parts[f"ppt/charts/chart{src}.xml"])
@@ -468,15 +509,14 @@ INVERTER_SPECS = [("Model", "{{InverterModel}}"), ("Rated AC output power", "{{I
 def build() -> None:
     pkg = Pkg(SRC)
 
-    # 1 cover: capacity and client under the title
+    # 1 cover: the client under the title, and the client's logo above it
     s = pkg.slide(1)
     p = para_with(s, "EPC of Solar PV System")
-    for text in ("{{Name}}", "{{DCCapacity}} kWp"):
-        np_ = copy.deepcopy(p)
-        set_para(np_, text)
-        np_.find(q("a:r")).find(q("a:rPr")).set("cap", "none")
-        p.addnext(np_)
-        p = np_
+    np_ = copy.deepcopy(p)
+    set_para(np_, "Client: {{Name}}")
+    np_.find(q("a:r")).find(q("a:rPr")).set("cap", "none")
+    p.addnext(np_)
+    add_image_slot(pkg, 1, "client_logo", 3.8, 0.95, 2.4, 1.05)
     # 2 contents: offer reference
     set_run(pkg.slide(2), "HTC//TCO/01", "HTC/{{Abbreviation}}/TCO/01")
     # 12 schematic
@@ -515,6 +555,7 @@ def build() -> None:
         tag_slide(pkg.slide(n), "offer:ds_inverter:SG150CX")
     for n in (24, 25):
         tag_slide(pkg.slide(n), "offer:ds_inverter:SG125CX-P2")
+    components_slide(pkg, 50)
     clone_slide(pkg, 15, 49, after_slide=15)
     subsystem_slide(pkg, 49)
     clone_slide(pkg, 23, 47, after_slide=21)

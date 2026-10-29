@@ -5,6 +5,7 @@
 //   offer:ds_module:<model> / offer:ds_inverter:<model>  datasheet slides of one model
 //   offer:spec_module / offer:spec_inverter             generic spec tables (used otherwise)
 //   offer:needs:<image>                                  dropped when that image is missing
+//   offer:needs:components                               dropped when no module or inverter is chosen
 //   offer:needs:subsystems                               dropped unless there are several sub-systems or inverter models
 // Logos (p:pic with descr "logo:<key>") are moved to a corner of image <key>.
 // Schedule tables (a W1, W2, ... header row) get one row per activity, shaded in its weeks.
@@ -195,6 +196,32 @@ async function fillImages(deck, part, root, images) {
   }
 }
 
+// ---- components ----------------------------------------------------------------------------
+
+const COMP_LEFT = 457200, COMP_WIDTH = 8229600;  // the components slide's columns span 0.5 to 9.5 in
+
+/**
+ * The components slide: the first `n` picture slots ("img:compK") and captions ("Component
+ * caption K") are spread evenly across the width; the rest are removed.
+ */
+export function layoutComponents(root, n) {
+  const shapes = [...byTag(root, "p", "pic"), ...byTag(root, "p", "sp")];
+  const slots = [];
+  for (const shp of shapes) {
+    const pr = byTag(shp, "p", "cNvPr")[0];
+    const m = (pr?.getAttribute("descr") || "").match(/^img:comp(\d)$/) || (pr?.getAttribute("name") || "").match(/^Component caption (\d)$/);
+    if (m) slots.push({ shp, k: Number(m[1]) });
+  }
+  if (!slots.length) return;
+  const col = COMP_WIDTH / Math.max(1, n);
+  for (const { shp, k } of slots) {
+    if (k > n) { shp.parentNode.removeChild(shp); continue; }
+    const xfrm = byTag(shp, "a", "xfrm")[0], off = child(xfrm, "a", "off"), ext = child(xfrm, "a", "ext");
+    const w = Number(ext.getAttribute("cx"));
+    off.setAttribute("x", String(Math.round(COMP_LEFT + (k - 0.5) * col - w / 2)));
+  }
+}
+
 // ---- schedule ----------------------------------------------------------------------------
 
 const cellText = (tc) => byTag(tc, "a", "t").map((t) => t.textContent).join("").trim();
@@ -327,7 +354,8 @@ export function keepSlide(tag, { moduleModel, inverterModel, moduleModels, inver
  * @param input { values, months (12 kWh or null), flow (from cashFlow or null),
  *                moduleModel, inverterModel, moduleModels, inverterModels (all models used), schedule ([{ name, start, weeks }] or null),
  *                subsystems ([{ name, mounting, module, modules, dc, inverters, ac, ratio }] as text, or none),
- *                images: { site, shadow, structure, structure2 }, each { bytes, ext, width, height, logoCorner? } }
+ *                components (how many component pictures: images comp1..compN),
+ *                images: { site, shadow, structure, structure2, client_logo, comp1.. }, each { bytes, ext, width, height, logoCorner? } }
  * @returns { bytes, missing }
  */
 export async function renderPptx(template, input) {
@@ -346,7 +374,7 @@ export async function renderPptx(template, input) {
   const subsystems = input.subsystems || [];
   const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, moduleModels: input.moduleModels,
                 inverterModels: input.inverterModels, images, dsModules, dsInverters,
-                flags: { subsystems: subsystems.length > 0 } };
+                flags: { subsystems: subsystems.length > 0, components: (input.components || 0) > 0 } };
 
   const lastWeek = input.schedule?.length ? Math.max(...input.schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0))) : null;
   for (let i = 0; i < slides.length; i++) {
@@ -360,6 +388,7 @@ export async function renderPptx(template, input) {
       fillSchedule(root, input.schedule);
     }
     if (subsystems.length) fillSubsystems(root, subsystems);
+    layoutComponents(root, input.components || 0);
     replacePlaceholders(root, input.values, missing, "a");
     await fillImages(deck, s.part, root, images);
   }
