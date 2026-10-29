@@ -37,11 +37,11 @@ export const MAX_WEEKS = 40;
 export const QUICK_DEFAULTS = {
   client_name: "", reference_code: "", price_per_kwp: null,
   // the system: one or more sub-systems, each with its own modules and inverter combination
-  // [{ name, desc, module_id, modules, dc_kwp, inverters: [{ inverter_id, qty }], ac_kw }]
+  // [{ name, desc, installation_type, elevation_m, tilt_deg, azimuth_deg,
+  //    module_id, modules, dc_kwp, inverters: [{ inverter_id, qty }], ac_kw }]
   // (dc_kwp / ac_kw are typed only when the module / inverters aren't in the library)
   subsystems: [],
   annual_gen_kwh: null, specific_yield: SPECIFIC_YIELD, monthly_kwh: null, shading_loss_pct: null, pr_pct: null,
-  installation_type: "Elevated Flat Roof", elevation_m: null, tilt_deg: null, azimuth_deg: null,
   tariff_bz: 32, degradation_pct: 0.65, vat_pct: 5,
   schedule: null, logo_corners: {},
   offer_site_file_id: null, offer_shadow_file_id: null, offer_structure_file_id: null, offer_structure2_file_id: null,
@@ -63,12 +63,25 @@ export function suggestCode(name) {
     .map((w) => w[0]).join("").toUpperCase().slice(0, 6);
 }
 
+export const DEFAULT_INSTALLATION = "Elevated Flat Roof";
+const MOUNTING = ["installation_type", "elevation_m", "tilt_deg", "azimuth_deg"];
+
 /**
  * The offer's sub-systems in the current shape. Offers saved before sub-systems carried their
  * own equipment had one module and one inverter (module_id × module_count, inverter_id ×
- * inverter_qty) and, when split, counts of those per sub-system.
+ * inverter_qty) and, when split, counts of those per sub-system; before they carried their own
+ * mounting, one design type, height, tilt and azimuth for the whole system.
  */
 export function systemsOf(o) {
+  const mounting = (r) => {
+    const out = { ...r };
+    for (const k of MOUNTING) out[k] = r[k] !== undefined ? r[k] : o[k] ?? (k === "installation_type" ? DEFAULT_INSTALLATION : null);
+    return out;
+  };
+  return equipmentOf(o).map(mounting);
+}
+
+function equipmentOf(o) {
   const rows = Array.isArray(o.subsystems) ? o.subsystems : [];
   if (rows.length && rows.every((r) => Array.isArray(r.inverters))) return rows;
   const inv = (qty) => (o.inverter_id && isNum(qty) ? [{ inverter_id: o.inverter_id, qty }] : []);
@@ -225,6 +238,9 @@ export function toProject(o, lookup = {}) {
   const client = [...(lookup.client?.values() || [])].find((c) => c.name === o.client_name) || { name: o.client_name };
   const { kwh } = annualKwh(o, dc);
   const makes = [...new Set(t.rows.flatMap((r) => r.invs.map((x) => x.inverter.make)))];
+  // the deck's single mounting figures: the largest sub-system's; every design type when they differ
+  const main = [...t.rows].sort((a, b) => (b.dc || 0) - (a.dc || 0))[0] || {};
+  const types = [...new Set(t.rows.map((r) => r.installation_type).filter(Boolean))];
   return {
     ...o,
     name: o.client_name,
@@ -232,6 +248,9 @@ export function toProject(o, lookup = {}) {
     client, module, inverter,
     dc_kwp: dc, ac_kw: ac,
     module_count: t.modules, inverter_qty: t.inverterQty,
+    installation_type: main.installation_type || null, elevation_m: main.elevation_m ?? null,
+    tilt_deg: main.tilt_deg ?? null, azimuth_deg: main.azimuth_deg ?? null,
+    installation_mix: types.length > 1 ? types.join(" and ") : "",
     inverter_mix: inverterMix(t), inverter_makes: makes.join(" / "),
     module_models: t.moduleModels, inverter_models: t.inverterModels,
     subtotal_omr: subtotal(o, dc),

@@ -117,6 +117,13 @@ export function degradationText(deg) {
     : fmtNum(deg.annual, 2);
 }
 
+/** "Carpark, 3 m high, 5° tilt, 109° (East)": a sub-system's mounting. */
+export function mountingText(r) {
+  return [r.installation_type, isNum(r.elevation_m) && r.elevation_m > 0 ? `${fmtG(r.elevation_m)} m high` : "",
+    isNum(r.tilt_deg) ? `${fmtG(r.tilt_deg)}° tilt` : "", isNum(r.azimuth_deg) ? `${fmtG(r.azimuth_deg)}° (${compass(r.azimuth_deg)})` : ""]
+    .filter(Boolean).join(", ");
+}
+
 /**
  * Sub-systems (POCs, roofs, orientations) as table rows, with their totals. p.subsystems holds the
  * rows of quick.systemTotals: [{ name, desc, module, modules, dc, invs: [{ inverter, qty }], ac }].
@@ -124,7 +131,7 @@ export function degradationText(deg) {
 export function subsystemTable(p) {
   const list = Array.isArray(p.subsystems) ? p.subsystems : [];
   const rows = list.map((r) => ({
-    name: r.name || "", desc: r.desc || "", module: r.module?.model || "",
+    name: r.name || "", desc: r.desc || "", module: r.module?.model || "", mounting: mountingText(r),
     modules: isNum(r.modules) && r.module ? r.modules : null, dc: isNum(r.dc) ? r.dc : null, ac: isNum(r.ac) ? r.ac : null,
     inverters: (r.invs || []).map((x) => `${x.qty} × ${x.inverter.model}`).join(" + "),
     count: (r.invs || []).reduce((t, x) => t + x.qty, 0),
@@ -185,6 +192,7 @@ export function buildOfferValues(p, today = new Date()) {
   if (p.inverter_mix) v.InverterMix = p.inverter_mix;
   else v.InverterMix = inv.model ? `${s(p.inverter_qty || "")} × ${fmtG(inv.ac_kw)}kW (${inv.model})` : "";
   if (p.inverter_makes) v.InverterMake = p.inverter_makes;
+  if (p.installation_mix) v.InstallationType = p.installation_mix;
 
   const eq = (k, dp = 0) => (annual ? fmtNum(annual * PER_KWH[k], dp, true) : "");
   Object.assign(v, { CO2Tonnes: eq("co2_t"), Homes: eq("homes"), GasGallons: eq("gallons"),
@@ -205,7 +213,7 @@ export function buildOfferValues(p, today = new Date()) {
     S_topo: s(inv.topology), S_ip: s(inv.ip_rating), S_dims: s(inv.dimensions), S_wti: s(fmtG(inv.weight_kg)),
   });
   const subsystems = ss.rows.map((r, i) => ({ name: [r.name || `Sub-system ${i + 1}`, r.desc].filter(Boolean).join(": "),
-    module: r.module, modules: n0(r.modules), dc: fmtNum(r.dc, 2), inverters: r.inverters, ac: fmtNum(r.ac, 1), ratio: fmtNum(r.ratio, 2) }));
+    mounting: r.mounting, module: r.module, modules: n0(r.modules), dc: fmtNum(r.dc, 2), inverters: r.inverters, ac: fmtNum(r.ac, 1), ratio: fmtNum(r.ratio, 2) }));
   return { values: v, months, estimated, flow, annual, dc, ac, subsystems };
 }
 

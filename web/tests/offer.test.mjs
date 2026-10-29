@@ -261,8 +261,10 @@ test("sub-systems: own module and inverter mix, ratio checks, and the breakdown 
   const sg150 = { ...base.inverter, id: 9, model: "SG150CX", ac_kw: 150 }, sg125 = { ...base.inverter, id: 10, model: "SG125CX-P2", ac_kw: 125 };
   const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, sg150], [10, sg125]]), client: new Map() };
   const o = { client_name: "ADC", price_per_kwp: 300, subsystems: [
-    { name: "POC 1", desc: "East roof", module_id: 7, modules: 435, inverters: [{ inverter_id: 9, qty: 1 }, { inverter_id: 10, qty: 1 }] },
-    { name: "POC 2", desc: "West roofs", module_id: 7, modules: 370, inverters: [{ inverter_id: 10, qty: 2 }] }] };
+    { name: "POC 1", desc: "East roof", installation_type: "Elevated Flat Roof", elevation_m: 2.5, tilt_deg: 5, azimuth_deg: 109,
+      module_id: 7, modules: 435, inverters: [{ inverter_id: 9, qty: 1 }, { inverter_id: 10, qty: 1 }] },
+    { name: "POC 2", desc: "West roofs", installation_type: "Carpark", elevation_m: 3, tilt_deg: 10, azimuth_deg: 289,
+      module_id: 7, modules: 370, inverters: [{ inverter_id: 10, qty: 2 }] }] };
   const t = systemTotals(o, lookup);
   assert.equal(t.modules, 805);
   assert.ok(Math.abs(t.dc - 579.6) < 1e-9);
@@ -283,7 +285,18 @@ test("sub-systems: own module and inverter mix, ratio checks, and the breakdown 
   assert.equal(old[0].module_id, 7);
   assert.equal(systemsOf({ module_id: 7, module_count: 805, inverter_id: 9, inverter_qty: 4 })[0].inverters[0].qty, 4);
 
+  // offers saved before: one design type, height, tilt and azimuth for the whole system
+  const flat = systemsOf({ installation_type: "Ballasted", tilt_deg: 15, subsystems: [{ module_id: 7, modules: 10, inverters: [] }] })[0];
+  assert.equal(flat.installation_type, "Ballasted");
+  assert.equal(flat.tilt_deg, 15);
+  assert.equal(flat.azimuth_deg, null);
+  assert.equal(systemsOf({})[0].installation_type, "Elevated Flat Roof");
+
   const p = toProject(o, lookup);
+  // the deck's single figures come from the largest sub-system; both design types are named
+  assert.equal(p.tilt_deg, 5);
+  assert.equal(p.elevation_m, 2.5);
+  assert.equal(p.installation_mix, "Elevated Flat Roof and Carpark");
   assert.equal(p.inverter_mix, "1 × 150kW (SG150CX) and 3 × 125kW (SG125CX-P2)");
   const { values, months, flow, subsystems } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
   const render = async (rows) => {
@@ -296,6 +309,9 @@ test("sub-systems: own module and inverter mix, ratio checks, and the breakdown 
   };
   const text = await render(subsystems);
   assert.ok(text.includes("System Breakdown"));
+  assert.ok(text.includes(">Elevated Flat Roof, 2.5 m high, 5° tilt, 109° (East)<"), "mounting of sub-system 1");
+  assert.ok(text.includes(">Carpark, 3 m high, 10° tilt, 289° (West)<"), "mounting of sub-system 2");
+  assert.ok(text.includes("Installation Type: Elevated Flat Roof and Carpark"), "slide 17 names both design types");
   for (const x of ["POC 1: East roof", "435", "313.2", "1 × SG150CX + 1 × SG125CX-P2", "275", "1.14", "POC 2: West roofs", "266.4",
                    "2 × SG125CX-P2", "579.6", "805", "525", "4 inverters", "1.1"]) assert.ok(text.includes(`>${x}<`), x);
   assert.ok(text.includes("1 × 150kW (SG150CX) and 3 × 125kW (SG125CX-P2)"), "slide 27 names both inverter models");
