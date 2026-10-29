@@ -3,8 +3,9 @@
   --ink: #17202b;
   --ink-2: #4a5666;
   --ink-3: #7b8796;
-  --line: #e2e6ec;
-  --line-2: #cfd6df;
+  --line: #d5dbe3;
+  --line-2: #b8c1cd;
+  --frame: #8fa1b6;   /* section and sub-system outlines */
   --bg: #f5f6f8;
   --panel: #ffffff;
   --navy: #13263d;
@@ -63,7 +64,7 @@ main { padding: 28px 34px 60px; max-width: 1180px; width: 100%; }
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; }
+.panel { background: var(--panel); border: 2px solid var(--line-2); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(19, 38, 61, .08); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -300,8 +301,10 @@ h3 { font-size: 13px; margin: 14px 0 2px; }
 .subsys tfoot th { border-top: 1px solid var(--line-2); }
 .subsys select { font: inherit; padding: 3px 5px; max-width: 100%; }
 .subsys td { padding: 4px 6px; }
-.ss-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; background: #fff; }
-.ss-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+/* each sub-system is a framed card with a shaded header, so one ends visibly before the next begins */
+.ss-card { border: 2px solid var(--frame); border-left: 6px solid var(--navy); border-radius: var(--radius); padding: 0 16px 14px; margin-bottom: 20px; background: #fbfcfe; overflow: hidden; }
+.ss-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 -16px 12px; padding: 10px 16px; background: #e9eef5; border-bottom: 2px solid var(--frame); }
+.ss-head > b { color: var(--navy); font-size: 15px; }
 .ss-head input { font: inherit; padding: 4px 6px; min-width: 0; width: auto; flex: 0 1 180px; }
 .ss-head .grow { flex: 1 1 260px; }
 .ss-card h4 { margin: 10px 0 6px; font-size: 13px; }
