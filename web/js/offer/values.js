@@ -156,6 +156,39 @@ export function componentsOf(p) {
   return list.filter((c) => c && c.item).slice(0, MAX_COMPONENTS);
 }
 
+const range = (a, b) => (isNum(a) && isNum(b) ? `${fmtG(a)}–${fmtG(b)}` : "");
+
+/** A module's spec slide values (its own table, for a model without datasheet slides in the template). */
+export function moduleSpecs(m = {}) {
+  return {
+    ModuleDims: moduleDims(m) || "—",
+    S_cells: s(m.cells), S_eff: s(fmtG(m.efficiency_pct)), S_voc: s(fmtG(m.voc)), S_isc: s(fmtG(m.isc)),
+    S_vmp: s(fmtG(m.vmp)), S_imp: s(fmtG(m.imp)), S_tcp: s(fmtG(m.tc_pmax_pct)), S_tcv: s(fmtG(m.tc_voc_pct)),
+    S_bif: isNum(m.bifaciality) ? `${fmtG(m.bifaciality * 100)} %` : "—", S_msv: s(fmtG(m.max_system_v)),
+    S_wt: s(fmtG(m.weight_kg)),
+  };
+}
+
+/** An inverter's spec slide values. */
+export function inverterSpecs(inv = {}) {
+  return {
+    S_kva: s(fmtG(inv.max_ac_kva)), S_grid: s(inv.ac_voltage || (inv.phases ? `${inv.phases}-phase` : "")),
+    S_maxv: s(fmtG(inv.max_dc_v)), S_mppt: s(range(inv.mppt_min_v, inv.mppt_max_v)), S_nmppt: s(inv.num_mppt),
+    S_spm: s(inv.mppt_strings || inv.strings_per_mppt), S_ipm: s(inv.mppt_currents || fmtG(inv.max_current_per_mppt)),
+    S_iscpm: s(inv.mppt_iscs || fmtG(inv.max_isc_per_mppt)), S_effi: s(fmtG(inv.max_eff_pct)),
+    S_topo: s(inv.topology), S_ip: s(inv.ip_rating), S_dims: s(inv.dimensions), S_wti: s(fmtG(inv.weight_kg)),
+  };
+}
+
+/** The values one model's spec slide needs, its name and rating included. */
+export function specValues(kind, item) {
+  if (kind === "module") {
+    return { ...moduleSpecs(item), ModuleMake: item.make || "", ModuleModel: item.model || "",
+             PanelCap: fmtNum(item.wp, 1), PanelType: item.technology || "" };
+  }
+  return { ...inverterSpecs(item), InverterMake: item.make || "", InverterModel: item.model || "", InverterUnitKW: fmtNum(item.ac_kw, 2) };
+}
+
 function paybackText(years) {
   if (years === null) return "more than 25 years";
   let y = Math.floor(years), m = Math.round((years - y) * 12);
@@ -218,20 +251,8 @@ export function buildOfferValues(p, today = new Date()) {
   Object.assign(v, { CO2Tonnes: eq("co2_t"), Homes: eq("homes"), GasGallons: eq("gallons"),
                      Cars: eq("cars"), Seedlings: eq("seedlings") });
 
-  // spec slides
-  const range = (a, b) => (isNum(a) && isNum(b) ? `${fmtG(a)}–${fmtG(b)}` : "");
-  Object.assign(v, {
-    ModuleDims: moduleDims(m) || "—",
-    S_cells: s(m.cells), S_eff: s(fmtG(m.efficiency_pct)), S_voc: s(fmtG(m.voc)), S_isc: s(fmtG(m.isc)),
-    S_vmp: s(fmtG(m.vmp)), S_imp: s(fmtG(m.imp)), S_tcp: s(fmtG(m.tc_pmax_pct)), S_tcv: s(fmtG(m.tc_voc_pct)),
-    S_bif: isNum(m.bifaciality) ? `${fmtG(m.bifaciality * 100)} %` : "—", S_msv: s(fmtG(m.max_system_v)),
-    S_wt: s(fmtG(m.weight_kg)),
-    S_kva: s(fmtG(inv.max_ac_kva)), S_grid: s(inv.ac_voltage || (inv.phases ? `${inv.phases}-phase` : "")),
-    S_maxv: s(fmtG(inv.max_dc_v)), S_mppt: s(range(inv.mppt_min_v, inv.mppt_max_v)), S_nmppt: s(inv.num_mppt),
-    S_spm: s(inv.mppt_strings || inv.strings_per_mppt), S_ipm: s(inv.mppt_currents || fmtG(inv.max_current_per_mppt)),
-    S_iscpm: s(inv.mppt_iscs || fmtG(inv.max_isc_per_mppt)), S_effi: s(fmtG(inv.max_eff_pct)),
-    S_topo: s(inv.topology), S_ip: s(inv.ip_rating), S_dims: s(inv.dimensions), S_wti: s(fmtG(inv.weight_kg)),
-  });
+  // spec slides: the main module and inverter
+  Object.assign(v, moduleSpecs(m), inverterSpecs(inv));
   const subsystems = ss.rows.map((r, i) => ({ name: [r.name || `Sub-system ${i + 1}`, r.desc].filter(Boolean).join(": "),
     mounting: r.mounting, module: r.module, modules: n0(r.modules), dc: fmtNum(r.dc, 2), inverters: r.inverters, ac: fmtNum(r.ac, 1), ratio: fmtNum(r.ratio, 2) }));
   return { values: v, months, estimated, flow, annual, dc, ac, subsystems };

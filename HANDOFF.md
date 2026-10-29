@@ -403,3 +403,11 @@ Small-scale Grid-connected Solar PV" and the NAMA rules**. These were requested 
   only respect hard rules. Result: 720 W Tiger Neo = 1 string per 40 A MPPT; 620 W = 2.
 - JKM620N-78HL4-BDV is in the Jinko seed set with values from a distributor's copy of Jinko's
   610-630 W datasheet (no user datasheet yet).
+
+### Spec slides for models without template datasheet slides
+
+The template has hand-made datasheet slides for some models only (SG150CX, SG125CX-P2, JKM620).
+For every other module or inverter in the system, the deck copies the spec slide once per part of
+its library datasheet: the top of page 1 and both halves of page 2 (`datasheetParts` in
+`helioscope.js`, split at the emptiest row near the middle). A model with no datasheet in the
+library keeps the spec table instead.

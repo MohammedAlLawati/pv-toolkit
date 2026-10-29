@@ -403,3 +403,39 @@ test("schedule rows follow the Gantt chart: added activities get rows", async ()
   const ids = [...first.matchAll(/a16:rowId [^>]*val="(\d+)"/g)].map((m) => m[1]);
   assert.equal(new Set(ids).size, ids.length, "row ids stay unique");
 });
+
+test("spec slides: datasheet pages for each model without template datasheet slides", async () => {
+  const { specValues } = await import("../js/offer/values.js");
+  const sg320 = { ...base.inverter, make: "Sungrow", model: "SG320HX-20", ac_kw: 320 };
+  const sg125 = { ...base.inverter, make: "Sungrow", model: "SG125CX-P2", ac_kw: 125 };
+  const p = { ...base, inverter: sg125 };
+  const { values, months, flow } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
+  const png = readFileSync(new URL("../data/products/DS_20241106_SG150CX_Datasheet_V4_EN.png", import.meta.url));
+  const page = { bytes: new Uint8Array(png), ext: "png", width: 2000, height: 1300 };
+  const out = await renderPptx(template, { values, months, flow, images: {},
+    moduleModel: p.module.model, inverterModel: sg125.model, inverterModels: [sg125.model, sg320.model],
+    specSheets: [{ kind: "module", model: p.module.model, values: specValues("module", p.module), pages: async () => [] },
+                 { kind: "inverter", model: sg125.model, values: specValues("inverter", sg125), pages: async () => [page] },
+                 { kind: "inverter", model: sg320.model, values: specValues("inverter", sg320), pages: async () => [page, page, page] }] });
+  const zip = await JSZip.loadAsync(out.bytes);
+  const pres = await zip.file("ppt/presentation.xml").async("string");
+  const rels = await zip.file("ppt/_rels/presentation.xml.rels").async("string");
+  const order = [...pres.matchAll(/<p:sldId [^>]*r:id="([^"]+)"/g)].map((m) => rels.match(new RegExp(`Id="${m[1]}"[^>]*Target="([^"]+)"`))?.[1]
+    || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${m[1]}"`))[1]);
+  const slides = [];
+  for (const t of order) slides.push(await zip.file("ppt/" + t).async("string"));
+  assert.ok(!slides.join("").includes("{{"), "a placeholder was left");
+  // the SG320HX-20: three slides, each one a datasheet picture and no table, after the module's table slide
+  const s320 = slides.map((x, i) => [x, i]).filter(([x]) => x.includes("SG320HX-20 Solar PV Inverter Specification"));
+  assert.equal(s320.length, 3);
+  for (const [x] of s320) { assert.ok(!x.includes("<a:tbl>") && x.includes("<p:pic>") && !x.includes('descr="img:'), "picture, no table"); }
+  assert.deepEqual(s320.map(([, i]) => i - s320[0][1]), [0, 1, 2], "together, in order");
+  // the module has no datasheet: its table slide stays; the SG125CX-P2 keeps its template slides only
+  const mod = slides.filter((x) => x.includes(`${p.module.model} PV Module Specification`));
+  assert.equal(mod.length, 1);
+  assert.ok(mod[0].includes("<a:tbl>") && !mod[0].includes('descr="img:sheet"'));
+  assert.ok(!slides.some((x) => x.includes("SG125CX-P2 Solar PV Inverter Specification")));
+  // every slide part has a content type and no notes slide is shared
+  const ct = await zip.file("[Content_Types].xml").async("string");
+  for (const t of order) assert.ok(ct.includes(`PartName="/ppt/${t}"`), t);
+});

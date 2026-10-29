@@ -389,6 +389,72 @@ export async function largestPicture(blob) {
   } finally { await pdf.destroy(); }
 }
 
+/** The box of non-white pixels in a region of a canvas (null when it's all but blank). */
+function inkBox(ctx, x0, y0, w, h) {
+  const d = ctx.getImageData(x0, y0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1, ink = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i] < 235 || d[i + 1] < 235 || d[i + 2] < 235) {
+        ink++;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (ink < w * h * 0.01) return null;
+  const pad = 12;
+  return { x: x0 + Math.max(0, minX - pad), y: y0 + Math.max(0, minY - pad),
+           w: Math.min(w, maxX + pad) - Math.max(0, minX - pad), h: Math.min(h, maxY + pad) - Math.max(0, minY - pad) };
+}
+
+/** The row between y0 and y1 with the least ink, nearest the middle: where a page splits without cutting a line of text. */
+function quietRow(ctx, y0, y1) {
+  const { width } = ctx.canvas;
+  const d = ctx.getImageData(0, y0, width, y1 - y0).data;
+  const mid = (y1 - y0) / 2;
+  let best = 0, bestInk = Infinity;
+  for (let y = 0; y < y1 - y0; y++) {
+    let ink = 0;
+    for (let x = 0; x < width; x += 2) {
+      const i = (y * width + x) * 4;
+      if (d[i] < 200 || d[i + 1] < 200 || d[i + 2] < 200) ink++;
+    }
+    if (ink < bestInk || (ink === bestInk && Math.abs(y - mid) < Math.abs(best - mid))) { best = y; bestInk = ink; }
+  }
+  return y0 + best;
+}
+
+/**
+ * A datasheet's pages cut to fit a slide: the top half of page 1 (the product and its
+ * features) and both halves of page 2 (the specification table), white margins trimmed.
+ * Returns [{ blob, width, height }].
+ */
+export async function datasheetParts(blob) {
+  const pdf = await (await pdfjs()).getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+  const out = [];
+  try {
+    for (const [n, halves] of [[1, [0]], [2, [0, 1]]]) {
+      if (n > pdf.numPages) break;
+      const page = await pdf.getPage(n);
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: 2000 / vp1.width });
+      const canvas = canvasOf(vp.width, vp.height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, canvas, viewport: vp }).promise;
+      const H = canvas.height, split = quietRow(ctx, Math.round(H * 0.38), Math.round(H * 0.62));
+      for (const k of halves) {
+        const box = k ? inkBox(ctx, 0, split, canvas.width, H - split) : inkBox(ctx, 0, 0, canvas.width, split);
+        if (box) out.push(await cut(canvas, box.x, box.y, box.w, box.h));
+      }
+      page.cleanup();
+    }
+  } finally { await pdf.destroy(); }
+  return out.map(({ blob: b, width, height }) => ({ blob: b, width, height }));
+}
+
 /** Cut a rectangle (in image pixels) out of an image blob. */
 export async function crop(blob, { x, y, w, h }) {
   const bmp = await createImageBitmap(blob);
