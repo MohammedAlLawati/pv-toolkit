@@ -323,6 +323,9 @@ def spec_slide(pkg: Pkg, n: int, table_src, title: str, rows: list[tuple[str, st
         cell_set(tcs[1], value, rpr)
         tbl.append(tr)
     slide.find(q("p:cSld")).find(q("p:spTree")).append(gf)
+    # or, when the model's datasheet is in the library, a part of one of its pages (the browser
+    # copies the slide per page and keeps either the picture or the table)
+    add_image_slot(pkg, n, "sheet", 0.35, y / EMU, 9.3, cy / EMU)
 
 
 # The sub-system table: [header, width (in), placeholder]. The browser copies the {{SS_*}} row

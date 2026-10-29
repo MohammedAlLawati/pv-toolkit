@@ -98,6 +98,42 @@ class Pptx {
     this.remove(s.part); this.remove(relsPath(s.part)); dropOverride(s.part);
   }
 
+  /** A copy of slide `s` (without its notes), placed right after slide `after` (default `s`). */
+  async cloneSlide(s, after = s) {
+    const ser = new XMLSerializer();
+    const text = async (name) => (this.trees.has(name) ? ser.serializeToString(this.trees.get(name)) : this.zip.file(name)?.async("string"));
+    let n = 1;
+    while (this.zip.file(`ppt/slides/slide${n}.xml`)) n++;
+    const part = `ppt/slides/slide${n}.xml`;
+    this.zip.file(part, await text(s.part));
+    const rels = new DOMParser().parseFromString(await text(relsPath(s.part)), "application/xml");
+    byTag(rels, "rel", "Relationship").filter((r) => /notesSlide$/.test(r.getAttribute("Type"))).forEach((r) => r.parentNode.removeChild(r));
+    this.trees.set(relsPath(part), rels);
+
+    const ct = await this.tree("[Content_Types].xml");
+    const ov = ct.createElementNS(NS.ct, "Override");
+    ov.setAttribute("PartName", "/" + part);
+    ov.setAttribute("ContentType", "application/vnd.openxmlformats-officedocument.presentationml.slide+xml");
+    ct.documentElement.appendChild(ov);
+
+    const presRels = await this.rels("ppt/presentation.xml");
+    const relIds = new Set(byTag(presRels, "rel", "Relationship").map((r) => r.getAttribute("Id")));
+    let k = 1;
+    while (relIds.has(`rIdS${k}`)) k++;
+    const rel = presRels.createElementNS(NS.rel, "Relationship");
+    rel.setAttribute("Id", `rIdS${k}`);
+    rel.setAttribute("Type", s.rel.getAttribute("Type"));
+    rel.setAttribute("Target", `slides/slide${n}.xml`);
+    presRels.documentElement.appendChild(rel);
+
+    const pres = await this.tree("ppt/presentation.xml");
+    const sldId = pres.createElementNS(NS.p, "p:sldId");
+    sldId.setAttribute("id", String(Math.max(255, ...byTag(pres, "p", "sldId").map((e) => Number(e.getAttribute("id")))) + 1));
+    sldId.setAttributeNS(NS.r, "r:id", `rIdS${k}`);
+    after.sldId.parentNode.insertBefore(sldId, after.sldId.nextSibling);
+    return { sldId, rel, part };
+  }
+
   async bytes() {
     const ser = new XMLSerializer();
     for (const [name, doc] of this.trees) {
@@ -355,6 +391,8 @@ export function keepSlide(tag, { moduleModel, inverterModel, moduleModels, inver
  *                moduleModel, inverterModel, moduleModels, inverterModels (all models used), schedule ([{ name, start, weeks }] or null),
  *                subsystems ([{ name, mounting, module, modules, dc, inverters, ac, ratio }] as text, or none),
  *                components (how many component pictures: images comp1..compN),
+ *                specSheets ([{ kind: "module"|"inverter", model, values, pages: async () => [image] }]: the spec
+ *                  slides of each model without template datasheet slides; without it one table slide is kept),
  *                images: { site, shadow, structure, structure2, client_logo, comp1.. }, each { bytes, ext, width, height, logoCorner? } }
  * @returns { bytes, missing }
  */
@@ -379,6 +417,27 @@ export async function renderPptx(template, input) {
   const lastWeek = input.schedule?.length ? Math.max(...input.schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0))) : null;
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
+    const spec = /^offer:spec_(module|inverter)$/.exec(tags[i]);
+    if (spec && input.specSheets) {
+      // one slide per model without its own datasheet slides: a picture of each part of its
+      // datasheet's pages, or the spec table when the datasheet isn't in the library
+      const ds = spec[1] === "module" ? dsModules : dsInverters;
+      let after = s;
+      for (const sheet of input.specSheets.filter((x) => x.kind === spec[1] && !ds.has(x.model))) {
+        let pages = [];
+        try { pages = (await sheet.pages?.()) || []; } catch { pages = []; }
+        for (const page of pages.length ? pages : [null]) {
+          const c = await deck.cloneSlide(s, after);
+          after = c;
+          const root = await deck.tree(c.part);
+          if (page) byTag(root, "p", "graphicFrame").filter((g) => byTag(g, "a", "tbl").length).forEach((g) => g.parentNode.removeChild(g));
+          replacePlaceholders(root, { ...input.values, ...sheet.values }, missing, "a");
+          await fillImages(deck, c.part, root, { ...images, sheet: page });
+        }
+      }
+      await deck.dropSlide(s);
+      continue;
+    }
     if (!keepSlide(tags[i], ctx)) { await deck.dropSlide(s); continue; }
     const root = await deck.tree(s.part);
     if (input.schedule?.length && byTag(root, "a", "tbl").length) {

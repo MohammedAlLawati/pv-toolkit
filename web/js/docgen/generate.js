@@ -88,16 +88,31 @@ async function productImage(item) {
   }
 }
 
+/** The parts of a library item's datasheet pages, for its spec slides ([] when there's no datasheet). */
+async function datasheetPages(item) {
+  const sheet = item?.datasheet_id ? await getFile(item.datasheet_id) : null;
+  if (!sheet?.blob) return [];
+  try {
+    const parts = await (await import("../offer/helioscope.js")).datasheetParts(sheet.blob);
+    return Promise.all(parts.map(async (pt) => ({ bytes: new Uint8Array(await pt.blob.arrayBuffer()), ext: "png", width: pt.width, height: pt.height })));
+  } catch (err) {
+    console.warn(`No datasheet pages from ${sheet.name}:`, err);
+    return [];
+  }
+}
+
 /** The offer deck (PowerPoint) for a project. Returns { blob, filename, missing, estimated }. */
 export async function generateOffer(p) {
   const { renderPptx } = await import("../offer/pptx.js");
-  const { buildOfferValues, componentsOf } = await import("../offer/values.js");
+  const { buildOfferValues, componentsOf, specValues } = await import("../offer/values.js");
   const { values, months, flow, estimated, subsystems } = buildOfferValues(p);
   const images = await offerImages(p);
   const components = componentsOf(p);
   for (const [i, c] of components.entries()) images[`comp${i + 1}`] = await productImage(c.item);
   const out = await renderPptx(await template("offer_deck.pptx"), {
     values, months, flow, subsystems, components: components.length,
+    specSheets: components.map((c) => ({ kind: c.kind, model: c.item.model || "", values: specValues(c.kind, c.item),
+                                         pages: () => datasheetPages(c.item) })),
     moduleModel: p.module?.model || "", inverterModel: p.inverter?.model || "",
     moduleModels: p.module_models || [], inverterModels: p.inverter_models || [],
     schedule: p.schedule || null,
