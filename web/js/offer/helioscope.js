@@ -361,6 +361,34 @@ async function readTable(canvas, onProgress) {
   }
 }
 
+/**
+ * The largest picture placed on a PDF's first page (a datasheet's product photo), cut from the
+ * rendered page as a JPEG blob; null when the page has none worth having.
+ */
+export async function largestPicture(blob) {
+  const pdf = await (await pdfjs()).getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+  try {
+    const page = await pdf.getPage(1);
+    const vp1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(4, 1600 / vp1.width) });
+    const canvas = canvasOf(vp.width, vp.height);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, canvas, viewport: vp }).promise;
+    let best = null;
+    for (const pl of placements(await page.getOperatorList(), lib.OPS)) {
+      const [a, b, c, d, e, f] = pl.ctm;
+      const pts = [[e, f], [a + e, b + f], [c + e, d + f], [a + c + e, b + d + f]].map(([x, y]) => vp.convertToViewportPoint(x, y));
+      const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+      const x = Math.max(0, Math.min(...xs)), y = Math.max(0, Math.min(...ys));
+      const w = Math.min(canvas.width, Math.max(...xs)) - x, h = Math.min(canvas.height, Math.max(...ys)) - y;
+      if (w < MIN_PX / 2 || h < MIN_PX / 2 || (w * h) / (canvas.width * canvas.height) > MAX_PAGE_SHARE) continue;
+      if (!best || w * h > best.w * best.h) best = { x, y, w, h };
+    }
+    return best ? (await cut(canvas, best.x, best.y, best.w, best.h)).blob : null;
+  } finally { await pdf.destroy(); }
+}
+
 /** Cut a rectangle (in image pixels) out of an image blob. */
 export async function crop(blob, { x, y, w, h }) {
   const bmp = await createImageBitmap(blob);

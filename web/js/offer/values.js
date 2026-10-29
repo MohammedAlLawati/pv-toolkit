@@ -142,6 +142,20 @@ export function subsystemTable(p) {
   return { rows, totals };
 }
 
+/** Most component pictures the deck has room for (the components slide's columns). */
+export const MAX_COMPONENTS = 4;
+
+/**
+ * The module and inverter models in the design, modules first, each with how many are used:
+ * [{ kind: "module" | "inverter", item, count }]. Quick offers list them (p.components); a
+ * project has one of each.
+ */
+export function componentsOf(p) {
+  const list = Array.isArray(p.components) ? p.components
+    : [p.module && { kind: "module", item: p.module, count: p.module_count }, p.inverter && { kind: "inverter", item: p.inverter, count: p.inverter_qty }];
+  return list.filter((c) => c && c.item).slice(0, MAX_COMPONENTS);
+}
+
 function paybackText(years) {
   if (years === null) return "more than 25 years";
   let y = Math.floor(years), m = Math.round((years - y) * 12);
@@ -193,6 +207,12 @@ export function buildOfferValues(p, today = new Date()) {
   else v.InverterMix = inv.model ? `${s(p.inverter_qty || "")} × ${fmtG(inv.ac_kw)}kW (${inv.model})` : "";
   if (p.inverter_makes) v.InverterMake = p.inverter_makes;
   if (p.installation_mix) v.InstallationType = p.installation_mix;
+
+  componentsOf(p).forEach((c, i) => {
+    v[`Comp${i + 1}Name`] = [c.item.make, c.item.model].filter(Boolean).join(" ");
+    const what = c.kind === "module" ? "PV module" : "Inverter";
+    v[`Comp${i + 1}Role`] = isNum(c.count) ? `${what} · ${n0(c.count)} ${c.count === 1 ? "unit" : "units"}` : what;
+  });
 
   const eq = (k, dp = 0) => (annual ? fmtNum(annual * PER_KWH[k], dp, true) : "");
   Object.assign(v, { CO2Tonnes: eq("co2_t"), Homes: eq("homes"), GasGallons: eq("gallons"),

@@ -305,6 +305,11 @@ The column is added automatically on startup.
   then 0.40% a year), applied linearly from year 2; year 1 is the simulated figure. Modules
   without these figures in the library fall back to one yearly figure (0.65%, compounded).
   The 620 Wp Tiger Neo's figures are assumed equal to the 66HL5 datasheet's until its own is in.
+- **Component pictures** (slide after "Component Specifications"): built-in datasheets have
+  their product picture cut out ahead of time (`python -m tools.extract_product_images` →
+  `web/data/products/`; the Jinko panel is a fixed crop of page 1 since it's drawn, not a
+  picture). A datasheet uploaded later uses the largest picture on its first page. The 620 Wp
+  module has no datasheet in the library, so it gets a caption without a picture.
 - **Structure height** isn't in the reports, so slide 17 reads "Height: m" until it's typed in.
 
 **Phase 2 scope (sizing engine):**

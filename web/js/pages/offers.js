@@ -202,6 +202,8 @@ const MONTHLY_SOURCE = {
   chart: "Monthly figures: measured off the Monthly Production bar chart on page 1 of the simulation report, then scaled to the annual total, so each can be up to about 1% out. Add the shading report for the exact figures from its Solar Access by Month table, or paste them under \"Change the figures\".",
   typed: "Monthly figures as pasted under \"Change the figures\", scaled to the annual total.",
 };
+// every stored picture of a quick offer: the slide pictures and the client's logo (cover slide)
+const PIC_FIELDS = [...IMAGE_KEYS.map(([key]) => key), "client_logo_file_id"];
 const SLOT_SHORT = { offer_site_file_id: "Location", offer_shadow_file_id: "Shading", offer_structure_file_id: "3D left", offer_structure2_file_id: "3D right" };
 const FIELD_OF = Object.fromEntries(Object.entries(SLOT_OF).map(([field, slot]) => [slot, field]));
 
@@ -294,7 +296,7 @@ export async function quick(main, { params, query }) {
 
   // pictures: { field: { id, url } (stored) | { blob, width, height, name } (not saved yet) | null }
   const pics = {};
-  for (const [key] of IMAGE_KEYS) {
+  for (const key of PIC_FIELDS) {
     const f = await db.getFile(o[key]);
     pics[key] = f ? { id: f.id, url: fileUrl(f) } : null;
   }
@@ -322,6 +324,7 @@ export async function quick(main, { params, query }) {
     <div class="fields">
       <label class="wide">Client name <input name="client_name" value="${o.client_name}" list="client-names" required></label>
       <label>Reference code <input name="reference_code" value="${o.reference_code || suggestCode(o.client_name)}"><span class="hint">In "HTC/&lt;code&gt;/TCO/01". Suggested from the client's initials</span></label>
+      <div class="client-logo"><span class="small">Client logo <span class="muted">(cover slide)</span></span><div id="client-logo"></div></div>
     </div>
     <datalist id="client-names">${byName(all.clients).map((c) => html`<option value="${c.name}">`)}</datalist>
   </div>
@@ -633,7 +636,25 @@ export async function quick(main, { params, query }) {
   }
   function setPic(key, pic) {
     pics[key] = pic;
-    drawPics();
+    if (key === "client_logo_file_id") drawClientLogo();
+    else drawPics();
+  }
+
+  // ---- client logo (Essentials): PNG with a transparent background looks best on the cover
+  function drawClientLogo() {
+    const pic = pics.client_logo_file_id;
+    const src = pic ? pic.url || (pic.url = URL.createObjectURL(pic.blob)) : "";
+    const box = main.querySelector("#client-logo");
+    box.innerHTML = html`<div class="logo-frame">${src ? html`<img src="${src}" alt="Client logo">` : html`<span class="muted small">No logo</span>`}</div>
+      <div class="btns"><label class="btn small">Choose…<input type="file" accept="image/png,image/jpeg" id="client-logo-file" hidden></label>
+        ${pic ? html`<button type="button" class="btn small" id="client-logo-clear">Remove</button>` : ""}</div>`;
+    box.querySelector("#client-logo-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try { setPic("client_logo_file_id", { ...(await readImage(file)), name: file.name }); }
+      catch { toast(`${file.name} couldn't be read (PNG or JPG only).`, "error"); }
+    });
+    box.querySelector("#client-logo-clear")?.addEventListener("click", () => setPic("client_logo_file_id", null));
   }
   const slotButtons = (attr, i) => html`${IMAGE_KEYS.map(([key]) => html`<button type="button" class="btn small" data-${attr}="${i}" data-slot="${key}">${SLOT_SHORT[key]}</button>`)}`;
   const usePic = (key, im) => {
@@ -879,7 +900,7 @@ export async function quick(main, { params, query }) {
     // whole-system figures kept on the record for the offers list
     const t = systemTotals(cur, all);
     Object.assign(cur, { dc_kwp: t.dc, ac_kw: t.ac });
-    for (const [key] of IMAGE_KEYS) {
+    for (const key of PIC_FIELDS) {
       const pic = pics[key];
       if (pic && !pic.id) {
         const fid = await db.putFile(pic.blob, pic.name || "picture.jpg", { width: pic.width, height: pic.height, kind: "offer" });
@@ -917,13 +938,14 @@ export async function quick(main, { params, query }) {
     if (!params.id) history.replaceState(null, "", `#/offers/quick/${o.id}`);
   }));
   main.querySelector("#delete")?.addEventListener("click", async () => {
-    for (const [key] of IMAGE_KEYS) await db.delFile(o[key]);
+    for (const key of PIC_FIELDS) await db.delFile(o[key]);
     await db.del("offers", o.id);
     toast("Offer deleted.");
     go("#/offers");
   });
 
   drawPics();
+  drawClientLogo();
   drawGantt();
   drawSubsystems();
   preview();

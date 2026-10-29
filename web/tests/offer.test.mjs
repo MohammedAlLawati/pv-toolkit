@@ -321,6 +321,46 @@ test("sub-systems: own module and inverter mix, ratio checks, and the breakdown 
   assert.deepEqual(toProject({ ...o, subsystems: [{ module_id: 7, modules: 400, inverters: [{ inverter_id: 9, qty: 2 }] }] }, lookup).subsystems, []);
 });
 
+test("cover names the client, components slide shows each model used", async () => {
+  const { toProject } = await import("../js/offer/quick.js");
+  const module = { ...base.module, id: 7, wp: 720, make: "Jinko Solar", model: "JKM720N-66HL5-BDV" };
+  const sg150 = { ...base.inverter, id: 9, make: "Sungrow", model: "SG150CX", ac_kw: 150 };
+  const sg125 = { ...base.inverter, id: 10, make: "Sungrow", model: "SG125CX-P2", ac_kw: 125 };
+  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, sg150], [10, sg125]]), client: new Map() };
+  const p = toProject({ client_name: "Autism Center", price_per_kwp: 300, subsystems: [
+    { module_id: 7, modules: 435, inverters: [{ inverter_id: 9, qty: 1 }, { inverter_id: 10, qty: 1 }] },
+    { module_id: 7, modules: 370, inverters: [{ inverter_id: 10, qty: 2 }] }] }, lookup);
+  assert.deepEqual(p.components.map((c) => [c.kind, c.item.model, c.count]),
+    [["module", "JKM720N-66HL5-BDV", 805], ["inverter", "SG125CX-P2", 3], ["inverter", "SG150CX", 1]]);
+  const { values, months, flow, subsystems } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
+  assert.equal(values.Comp1Name, "Jinko Solar JKM720N-66HL5-BDV");
+  assert.equal(values.Comp1Role, "PV module · 805 units");
+  assert.equal(values.Comp3Role, "Inverter · 1 unit");
+  const png = readFileSync(new URL("../data/products/DS_20241106_SG150CX_Datasheet_V4_EN.png", import.meta.url));
+  const pic = { bytes: new Uint8Array(png), ext: "png", width: 900, height: 719 };
+  const out = await renderPptx(template, { values, months, flow, subsystems, components: 3, images: { comp1: pic, comp2: pic, comp3: pic, client_logo: pic } });
+  const zip = await JSZip.loadAsync(out.bytes);
+  const slides = [];
+  for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) slides.push(await zip.file(f).async("string"));
+  const cover = slides.find((x) => x.includes("Techno-Commercial Offer"));
+  assert.ok(cover.includes("Client: Autism Center"));
+  assert.ok(!/kWp/.test(cover), "no capacity on the cover");
+  assert.ok(!cover.includes('descr="img:'), "client logo placed");
+  const comp = slides.find((x) => x.includes("Selected Components for the Proposed System"));
+  assert.ok(comp, "components slide kept");
+  for (const t of ["Jinko Solar JKM720N-66HL5-BDV", "PV module · 805 units", "Sungrow SG125CX-P2", "Inverter · 3 units", "Sungrow SG150CX"]) assert.ok(comp.includes(t), t);
+  assert.ok(!comp.includes("Comp4") && !comp.includes("Component caption 4"), "the unused fourth column is removed");
+  // three columns over 9 in: the middle picture is centred on the slide
+  const offs = [...comp.matchAll(/<p:pic>[\s\S]*?<a:off x="(\d+)"[\s\S]*?<a:ext cx="(\d+)"/g)].map((m) => Number(m[1]) + Number(m[2]) / 2);
+  assert.ok(offs.some((c) => Math.abs(c - 4572000) < 2000), "a picture centred on the slide");
+  // no module or inverter: no components slide
+  const none = await renderPptx(template, { values, months, flow, images: {}, components: 0 });
+  const z2 = await JSZip.loadAsync(none.bytes);
+  let all = "";
+  for (const f of Object.keys(z2.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) all += await z2.file(f).async("string");
+  assert.ok(!all.includes("Selected Components"));
+});
+
 test("monthly figures from the Solar Access by Month table", async () => {
   const { parseReport } = await import("../js/offer/helioscope.js");
   const f = parseReport("Solar Access by Month Description jan feb mar FS-1 100% 100% Solar Access, weighted by kWp 99.9% 99.9% "

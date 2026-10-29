@@ -62,20 +62,46 @@ async function offerImages(p) {
     structure2: await image(p.offer_structure2_file_id),
   };
   for (const [k, img] of Object.entries(out)) if (img && corners[k]) img.logoCorner = corners[k];
+  out.client_logo = await image(p.client_logo_file_id);
   return out;
+}
+
+/**
+ * A picture of a library module or inverter, from its datasheet: the picture cut out ahead of
+ * time for the built-in datasheets (data/products, see tools/extract_product_images.py), else
+ * the largest picture on the datasheet's first page. Null when there's none.
+ */
+async function productImage(item) {
+  const sheet = item?.datasheet_id ? await getFile(item.datasheet_id) : null;
+  if (!sheet?.blob) return null;
+  try {
+    const res = await fetch(`data/products/${encodeURIComponent(sheet.name.replace(/\.pdf$/i, ""))}.png`);
+    const blob = res.ok ? await res.blob() : await (await import("../offer/helioscope.js")).largestPicture(sheet.blob);
+    if (!blob) return null;
+    const bmp = await createImageBitmap(blob);
+    const out = { bytes: new Uint8Array(await blob.arrayBuffer()), ext: blob.type === "image/png" ? "png" : "jpg", width: bmp.width, height: bmp.height };
+    bmp.close?.();
+    return out;
+  } catch (err) {
+    console.warn(`No picture from ${sheet.name}:`, err);
+    return null;
+  }
 }
 
 /** The offer deck (PowerPoint) for a project. Returns { blob, filename, missing, estimated }. */
 export async function generateOffer(p) {
   const { renderPptx } = await import("../offer/pptx.js");
-  const { buildOfferValues } = await import("../offer/values.js");
+  const { buildOfferValues, componentsOf } = await import("../offer/values.js");
   const { values, months, flow, estimated, subsystems } = buildOfferValues(p);
+  const images = await offerImages(p);
+  const components = componentsOf(p);
+  for (const [i, c] of components.entries()) images[`comp${i + 1}`] = await productImage(c.item);
   const out = await renderPptx(await template("offer_deck.pptx"), {
-    values, months, flow, subsystems,
+    values, months, flow, subsystems, components: components.length,
     moduleModel: p.module?.model || "", inverterModel: p.inverter?.model || "",
     moduleModels: p.module_models || [], inverterModels: p.inverter_models || [],
     schedule: p.schedule || null,
-    images: await offerImages(p),
+    images,
   });
   return { blob: new Blob([out.bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }),
            filename: docFilename("initial", p, "pptx").replace("NAMA_Initial_Form_", "Offer_"), missing: out.missing, estimated };
