@@ -66,7 +66,8 @@ def test_first_login_sets_up_2fa_then_second_login_asks_code(client):
         secret = db.query(User).one().totp_secret
     r = client.post("/setup-2fa", data={"code": "000000", "csrf_token": csrf(page.text)})
     assert r.status_code == 400
-    r = client.post("/setup-2fa", data={"code": code_for(secret), "csrf_token": csrf(page.text)},
+    setup_code = code_for(secret)
+    r = client.post("/setup-2fa", data={"code": setup_code, "csrf_token": csrf(page.text)},
                     follow_redirects=False)
     assert r.headers["location"] == "/"
     assert client.get("/", follow_redirects=False).status_code == 200
@@ -79,7 +80,7 @@ def test_first_login_sets_up_2fa_then_second_login_asks_code(client):
     assert r.headers["location"] == "/login/2fa"
     page = client.get("/login/2fa")
     # the code used during setup cannot be replayed
-    r = client.post("/login/2fa", data={"code": code_for(secret), "csrf_token": csrf(page.text)})
+    r = client.post("/login/2fa", data={"code": setup_code, "csrf_token": csrf(page.text)})
     assert r.status_code == 400
     r = client.post("/login/2fa", data={"code": code_for(secret, 1), "csrf_token": csrf(page.text)},
                     follow_redirects=False)
