@@ -298,6 +298,21 @@ h3 { font-size: 13px; margin: 14px 0 2px; }
 .subsys input { width: 100%; font: inherit; padding: 3px 5px; min-width: 70px; }
 .subsys input.num { text-align: right; max-width: 90px; }
 .subsys tfoot th { border-top: 1px solid var(--line-2); }
+.subsys select { font: inherit; padding: 3px 5px; max-width: 100%; }
+.subsys td { padding: 4px 6px; }
+.ss-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; background: #fff; }
+.ss-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.ss-head input { font: inherit; padding: 4px 6px; min-width: 0; width: auto; flex: 0 1 180px; }
+.ss-head .grow { flex: 1 1 260px; }
+.ss-card h4 { margin: 10px 0 6px; font-size: 13px; }
+.ss-card .btns { align-items: center; }
+.ss-card label.inline { display: inline-flex; gap: 6px; align-items: center; }
+.ss-card label.inline input { width: 90px; font: inherit; padding: 3px 5px; text-align: right; }
+.nowrap { white-space: nowrap; }
+.suggest { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.suggest .btn { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.3; text-align: left; }
+.suggest .btn small { font-weight: 400; opacity: .75; }
+.suggest .btn.on { background: var(--navy); border-color: var(--navy); color: #fff; }
 .chart { width: 100%; height: auto; display: block; }
 .chart .grid { stroke: var(--line); }
 .chart .zero { stroke: var(--ink-3); }

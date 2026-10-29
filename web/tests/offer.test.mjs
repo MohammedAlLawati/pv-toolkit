@@ -117,7 +117,7 @@ test("quick offer: module × count, price per kWp and a client name make a whole
   const dc = (module.wp * 240) / 1000, ac = inverter.ac_kw;
   assert.deepEqual(quickMissing(o, lookup), []);
   assert.deepEqual(quickMissing({ ...o, price_per_kwp: null, client_name: "" }, lookup), ["Client name", "Price per kWp"]);
-  assert.deepEqual(quickMissing({ ...o, module_count: null }, lookup), ["DC capacity (module and number of panels)"]);
+  assert.deepEqual(quickMissing({ ...o, module_count: null }, lookup), ["DC capacity (PV module and number of panels)"]);
   assert.equal(annualKwh(o, dc).kwh, dc * 1650);
   assert.equal(annualKwh({ ...o, annual_gen_kwh: 250000 }, dc).source, "annual");
 
@@ -236,23 +236,59 @@ test("degradation follows the module datasheet's linear warranty", async () => {
   assert.equal(p.module.degradation_annual_pct, 0.4);
 });
 
-test("sub-systems: checked against the design, and a table slide in the deck", async () => {
-  const { toProject, subsystemIssues } = await import("../js/offer/quick.js");
-  const module = { ...base.module, id: 7, wp: 720 }, inverter = { ...base.inverter, id: 9, ac_kw: 150 };
-  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, inverter]]), client: new Map() };
-  const o = { client_name: "ADC", price_per_kwp: 300, module_id: 7, module_count: 805, inverter_id: 9, inverter_qty: 4, split_system: true,
-              subsystems: [{ name: "POC 1", desc: "East roof", modules: 435, inverters: 2 }, { name: "POC 2", desc: "West roofs", modules: 370, inverters: 2 }] };
-  assert.deepEqual(subsystemIssues(o, lookup), []);
-  const off = subsystemIssues({ ...o, subsystems: [{ ...o.subsystems[0] }, { ...o.subsystems[1], modules: 365, inverters: 1 }] }, lookup);
-  assert.equal(off.length, 2);
-  assert.match(off[0], /800 PV modules.*805: 5 \(3\.6 kWp\) short/);
-  assert.match(off[1], /3 inverters.*4: 1 \(150 kW AC\) short/);
-  assert.deepEqual(subsystemIssues({ ...o, split_system: false, subsystems: [] }, lookup), []);
+test("inverter suggestions: DC/AC within 0.8-1.2, fewest inverters, no inverter that isn't needed", async () => {
+  const { suggestInverters } = await import("../js/offer/quick.js");
+  const lib = [5, 10, 20, 25, 30, 50, 125, 150].map((kw, i) => ({ id: i + 1, model: `SG${kw}`, ac_kw: kw }));
+  const best = suggestInverters(280, lib);
+  // one inverter can't reach 280 / 1.2 = 233 kW; two can: 150 + 125 = 275 kW is closest to 1.0
+  assert.equal(best[0].label, "1 × SG150 + 1 × SG125");
+  assert.equal(best[0].count, 2);
+  assert.ok(Math.abs(best[0].ratio - 280 / 275) < 1e-9);
+  for (const c of best) {
+    assert.ok(c.ratio >= 0.8 && c.ratio <= 1.2, c.label);
+    assert.ok(c.count <= 3, c.label);
+    // dropping the smallest inverter would break the lower AC limit
+    const smallest = Math.min(...c.inverters.map((x) => lib.find((l) => l.id === x.inverter_id).ac_kw));
+    assert.ok(c.ac - smallest < 280 / 1.2, c.label);
+  }
+  assert.deepEqual(suggestInverters(52, lib).slice(0, 2).map((c) => c.label), ["1 × SG50", "2 × SG25"]);
+  assert.deepEqual(suggestInverters(null, lib), []);
+});
+
+test("sub-systems: own module and inverter mix, ratio checks, and the breakdown slide", async () => {
+  const { toProject, systemIssues, systemTotals, systemsOf } = await import("../js/offer/quick.js");
+  const module = { ...base.module, id: 7, wp: 720 };
+  const sg150 = { ...base.inverter, id: 9, model: "SG150CX", ac_kw: 150 }, sg125 = { ...base.inverter, id: 10, model: "SG125CX-P2", ac_kw: 125 };
+  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, sg150], [10, sg125]]), client: new Map() };
+  const o = { client_name: "ADC", price_per_kwp: 300, subsystems: [
+    { name: "POC 1", desc: "East roof", module_id: 7, modules: 435, inverters: [{ inverter_id: 9, qty: 1 }, { inverter_id: 10, qty: 1 }] },
+    { name: "POC 2", desc: "West roofs", module_id: 7, modules: 370, inverters: [{ inverter_id: 10, qty: 2 }] }] };
+  const t = systemTotals(o, lookup);
+  assert.equal(t.modules, 805);
+  assert.ok(Math.abs(t.dc - 579.6) < 1e-9);
+  assert.equal(t.ac, 525);
+  assert.equal(t.inverterQty, 4);
+  assert.deepEqual(t.inverterModels.sort(), ["SG125CX-P2", "SG150CX"]);
+  assert.deepEqual(systemIssues(o, lookup), []);
+  // 266.4 kWp on one 125 kW inverter: 2.13
+  const bad = systemIssues({ ...o, subsystems: [o.subsystems[0], { ...o.subsystems[1], inverters: [{ inverter_id: 10, qty: 1 }] }] }, lookup);
+  assert.equal(bad.length, 2);
+  assert.match(bad[0], /Sub-system 2 \(POC 2\): DC\/AC ratio 2\.13 is outside 0\.8–1\.2/);
+  assert.match(bad[1], /Whole system: DC\/AC ratio 1\.45/);
+  assert.match(systemIssues({ ...o, subsystems: [{ module_id: 7, modules: 10, inverters: [] }] }, lookup)[0], /no inverters/);
+
+  // offers saved before: one module and inverter, split by counts
+  const old = systemsOf({ module_id: 7, inverter_id: 9, split_system: true, subsystems: [{ name: "A", modules: 435, inverters: 2 }] });
+  assert.deepEqual(old[0].inverters, [{ inverter_id: 9, qty: 2 }]);
+  assert.equal(old[0].module_id, 7);
+  assert.equal(systemsOf({ module_id: 7, module_count: 805, inverter_id: 9, inverter_qty: 4 })[0].inverters[0].qty, 4);
 
   const p = toProject(o, lookup);
+  assert.equal(p.inverter_mix, "1 × 150kW (SG150CX) and 3 × 125kW (SG125CX-P2)");
   const { values, months, flow, subsystems } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
   const render = async (rows) => {
-    const out = await renderPptx(template, { values, months, flow, subsystems: rows, images: {}, moduleModel: module.model, inverterModel: inverter.model });
+    const out = await renderPptx(template, { values, months, flow, subsystems: rows, images: {}, moduleModel: module.model,
+      inverterModel: p.inverter.model, inverterModels: p.inverter_models });
     const zip = await JSZip.loadAsync(out.bytes);
     let text = "";
     for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) text += await zip.file(f).async("string");
@@ -260,9 +296,37 @@ test("sub-systems: checked against the design, and a table slide in the deck", a
   };
   const text = await render(subsystems);
   assert.ok(text.includes("System Breakdown"));
-  for (const t of ["POC 1", "East roof", "435", "313.2", "POC 2", "266.4", "300", "579.6", "805", "600"]) assert.ok(text.includes(`>${t}<`), t);
+  for (const x of ["POC 1: East roof", "435", "313.2", "1 × SG150CX + 1 × SG125CX-P2", "275", "1.14", "POC 2: West roofs", "266.4",
+                   "2 × SG125CX-P2", "579.6", "805", "525", "4 inverters", "1.1"]) assert.ok(text.includes(`>${x}<`), x);
+  assert.ok(text.includes("1 × 150kW (SG150CX) and 3 × 125kW (SG125CX-P2)"), "slide 27 names both inverter models");
   assert.ok(!/\{\{SS_/.test(text));
-  assert.ok(!(await render([])).includes("System Breakdown"), "no slide when the system isn't split");
+  assert.ok(!(await render([])).includes("System Breakdown"), "no slide for one sub-system with one inverter model");
+  // one sub-system, one inverter model: no breakdown
+  assert.deepEqual(toProject({ ...o, subsystems: [{ module_id: 7, modules: 400, inverters: [{ inverter_id: 9, qty: 2 }] }] }, lookup).subsystems, []);
+});
+
+test("monthly figures from the Solar Access by Month table", async () => {
+  const { parseReport } = await import("../js/offer/helioscope.js");
+  const f = parseReport("Solar Access by Month Description jan feb mar FS-1 100% 100% Solar Access, weighted by kWp 99.9% 99.9% "
+    + "AC Power (kWh) 67,892.3 70,784.9 84,392.1 92,930.6 97,831.6 94,517.7 91,378.6 88,302.0 83,802.6 80,919.8 69,831.8 64,230.1");
+  assert.equal(f.monthly_kwh.length, 12);
+  assert.equal(f.monthly_kwh[0], 67892.3);
+  assert.equal(f.monthly_kwh[11], 64230.1);
+});
+
+test("monthly figures read off the scanned table: separators repaired, then checked against the chart", async () => {
+  const { acPowerRow, monthsAgree } = await import("../js/offer/helioscope.js");
+  // as recognised on the sample shading report: some decimal points are lost
+  const ocr = "Solar Access, weighted by kWp 99.9% 99.9%\nAC Power (kWh) 67,8923 70,7849 84,3921 92,930.6 97,8316 945177 91,378.6 883020 83,8026 80,919.8 69,831.8 64,230.1\nlL. Monthlv Production";
+  const months = acPowerRow(ocr);
+  assert.deepEqual(months, [67892.3, 70784.9, 84392.1, 92930.6, 97831.6, 94517.7, 91378.6, 88302, 83802.6, 80919.8, 69831.8, 64230.1]);
+  assert.equal(acPowerRow("AC Power (kWh) 67,892.3 70,784.9"), null);
+  const bars = months.map((m, i) => m * (i % 2 ? 1.01 : 0.99));
+  assert.ok(monthsAgree(months, bars, 986800));
+  assert.ok(!monthsAgree(months, bars, 900000), "must add up to the annual figure");
+  const misread = [...months]; misread[3] = 9293.1; misread[4] += 92930.6 - 9293.1;
+  assert.ok(!monthsAgree(misread, bars, 986800), "a misread month is caught by the chart");
+  assert.ok(!monthsAgree(months, null, 986800));
 });
 
 test("schedule rows follow the Gantt chart: added activities get rows", async () => {
