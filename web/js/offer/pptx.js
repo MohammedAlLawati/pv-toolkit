@@ -291,7 +291,7 @@ export function fillSchedule(root, schedule) {
 
 /**
  * The sub-system table: the row holding {{SS_Name}} is copied once per sub-system
- * ([{ name, module, modules, dc, inverters, ac, ratio }], already formatted) and then removed.
+ * ([{ name, mounting, module, modules, dc, inverters, ac, ratio }], already formatted) and then removed.
  */
 export function fillSubsystems(root, rows) {
   for (const tr of byTag(root, "a", "tr")) {
@@ -299,7 +299,7 @@ export function fillSubsystems(root, rows) {
     for (const r of rows) {
       const copy = tr.cloneNode(true);
       const tcs = byTag(copy, "a", "tc");
-      [r.name, r.module, r.modules, r.dc, r.inverters, r.ac, r.ratio].forEach((text, i) => tcs[i] && setCellText(tcs[i], text ?? ""));
+      [r.name, r.mounting, r.module, r.modules, r.dc, r.inverters, r.ac, r.ratio].forEach((text, i) => tcs[i] && setCellText(tcs[i], text ?? ""));
       tr.parentNode.insertBefore(copy, tr);
     }
     tr.parentNode.removeChild(tr);
@@ -326,7 +326,7 @@ export function keepSlide(tag, { moduleModel, inverterModel, moduleModels, inver
  * @param template ArrayBuffer of offer_deck.pptx
  * @param input { values, months (12 kWh or null), flow (from cashFlow or null),
  *                moduleModel, inverterModel, moduleModels, inverterModels (all models used), schedule ([{ name, start, weeks }] or null),
- *                subsystems ([{ name, module, modules, dc, inverters, ac, ratio }] as text, or none),
+ *                subsystems ([{ name, mounting, module, modules, dc, inverters, ac, ratio }] as text, or none),
  *                images: { site, shadow, structure, structure2 }, each { bytes, ext, width, height, logoCorner? } }
  * @returns { bytes, missing }
  */

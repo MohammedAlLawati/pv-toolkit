@@ -10,8 +10,8 @@ The browser fills the result (web/js/offer/). This script:
   (a table of the library values, used when the template has no datasheet slides);
 - adds image slots (p:pic with descr "img:<key>") for the site, shadow and two structure (3D view)
   pictures, and tags the HTC logos that sit on them (descr "logo:<key>");
-- adds a sub-system breakdown slide after the design summary (tagged "offer:needs:subsystems": modules,
-  inverter combination and DC/AC ratio of each sub-system);
+- adds a sub-system breakdown slide after the design summary (tagged "offer:needs:subsystems": mounting,
+  modules, inverter combination and DC/AC ratio of each sub-system);
 - turns the shadow slide's three paragraphs into {{ShadeP1..3}} (they change when shading is high);
 - replaces the CO2 picture with text and the cash-flow picture with a chart;
 - unlinks the charts from the original Excel file (the path named another client);
@@ -325,11 +325,11 @@ def spec_slide(pkg: Pkg, n: int, table_src, title: str, rows: list[tuple[str, st
 
 # The sub-system table: [header, width (in), placeholder]. The browser copies the {{SS_*}} row
 # once per sub-system and drops the slide when the system isn't split.
-SUBSYSTEM_COLS = [("Sub-system", 1.6, "{{SS_Name}}"), ("PV module", 1.55, "{{SS_Module}}"),
-                  ("Modules", 0.8, "{{SS_Modules}}"), ("DC (kWp)", 0.9, "{{SS_DC}}"),
-                  ("Inverters", 2.2, "{{SS_Inverters}}"), ("AC (kW)", 0.85, "{{SS_AC}}"),
-                  ("DC/AC", 0.7, "{{SS_Ratio}}")]
-SUBSYSTEM_TOTALS = ["Total", "", "{{SS_TotModules}}", "{{SS_TotDC}}", "{{SS_TotInverters}}", "{{SS_TotAC}}",
+SUBSYSTEM_COLS = [("Sub-system", 1.25, "{{SS_Name}}"), ("Installation", 1.6, "{{SS_Mounting}}"),
+                  ("PV module", 1.25, "{{SS_Module}}"), ("Panels", 0.75, "{{SS_Modules}}"),
+                  ("DC (kWp)", 0.8, "{{SS_DC}}"), ("Inverters", 1.65, "{{SS_Inverters}}"),
+                  ("AC (kW)", 0.75, "{{SS_AC}}"), ("DC/AC", 0.65, "{{SS_Ratio}}")]
+SUBSYSTEM_TOTALS = ["Total", "", "", "{{SS_TotModules}}", "{{SS_TotDC}}", "{{SS_TotInverters}}", "{{SS_TotAC}}",
                     "{{SS_TotRatio}}"]
 
 

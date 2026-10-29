@@ -9,7 +9,7 @@ import { setTitle } from "../app.js";
 import { generateOffer } from "../docgen/generate.js";
 import { fmtOmr } from "../docgen/context.js";
 import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing, parseMonthly } from "../offer/values.js";
-import { DCAC_MAX, DCAC_MIN, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
+import { DCAC_MAX, DCAC_MIN, DEFAULT_INSTALLATION, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
   annualKwh, capacities, quickMissing, ratioOk, suggestInverters, suggestCode, systemIssues, systemTotals, systemsOf,
   toProject } from "../offer/quick.js";
 import { inverterOptions, moduleOptions } from "../options.js";
@@ -279,15 +279,16 @@ export async function quick(main, { params, query }) {
     o = { ...QUICK_DEFAULTS, logo_corners: {}, subsystems: [] };
     // start from the most recent offer's module and commercial settings
     const last = byUpdated(await db.list("offers"))[0];
-    if (last) for (const k of ["installation_type", "tariff_bz", "degradation_pct", "specific_yield", "price_per_kwp"]) if (last[k] !== undefined) o[k] = last[k];
-    const lastModule = last ? systemsOf(last)[0]?.module_id : null;
-    o.subsystems = [{ name: "", desc: "", module_id: lastModule || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null }];
+    if (last) for (const k of ["tariff_bz", "degradation_pct", "specific_yield", "price_per_kwp"]) if (last[k] !== undefined) o[k] = last[k];
+    const prev = last ? systemsOf(last)[0] : null;
+    o.subsystems = [{ name: "", desc: "", installation_type: prev?.installation_type || DEFAULT_INSTALLATION, elevation_m: null,
+                      tilt_deg: null, azimuth_deg: null, module_id: prev?.module_id || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null }];
     if (query.client) o.client_name = query.client;
   }
   setTitle(params.id ? `Offer · ${o.client_name}` : "New offer");
-  const designTypes = [...new Set([...DESIGN_TYPES, ...(await db.getSetting("design_types", [])), o.installation_type].filter(Boolean))];
   const schedule = (o.schedule || DEFAULT_SCHEDULE).map((a) => ({ name: a.name, start: a.start, weeks: a.weeks }));
   const subsystems = systemsOf(o).map((r) => ({ ...r, inverters: (r.inverters || []).map((x) => ({ ...x })) }));
+  const designTypes = [...new Set([...DESIGN_TYPES, ...(await db.getSetting("design_types", [])), ...subsystems.map((r) => r.installation_type)].filter(Boolean))];
   const corners = { ...(o.logo_corners || {}) };
   let codeEdited = !!o.reference_code && o.reference_code !== suggestCode(o.client_name);
 
@@ -321,7 +322,6 @@ export async function quick(main, { params, query }) {
     <div class="fields">
       <label class="wide">Client name <input name="client_name" value="${o.client_name}" list="client-names" required></label>
       <label>Reference code <input name="reference_code" value="${o.reference_code || suggestCode(o.client_name)}"><span class="hint">In "HTC/&lt;code&gt;/TCO/01". Suggested from the client's initials</span></label>
-      <label>Design type <select name="installation_type">${designTypes.map((t) => html`<option ${sel(t === o.installation_type)}>${t}</option>`)}<option value="__new">Add a type…</option></select></label>
     </div>
     <datalist id="client-names">${byName(all.clients).map((c) => html`<option value="${c.name}">`)}</datalist>
   </div>
@@ -333,11 +333,6 @@ export async function quick(main, { params, query }) {
     <div id="subsystems"></div>
     <h3 class="spaced-top">Whole system</h3>
     <div id="system-summary"></div>
-    <div class="fields spaced-top">
-      <label>Structure height (m) <input name="elevation_m" value="${g(o.elevation_m)}" inputmode="decimal"></label>
-      <label>Tilt (°) <input name="tilt_deg" value="${g(o.tilt_deg)}" inputmode="decimal"></label>
-      <label>Azimuth (°) <input name="azimuth_deg" value="${g(o.azimuth_deg)}" inputmode="decimal" placeholder="180 = south"></label>
-    </div>
   </div>
 
   <div class="panel">
@@ -393,18 +388,17 @@ export async function quick(main, { params, query }) {
   /** The form as an offer record (pictures and corners are added on save). */
   function read() {
     const fd = new FormData(form);
-    const type = str(fd, "installation_type");
     return {
       ...o,
       client_name: str(fd, "client_name"), reference_code: str(fd, "reference_code").toUpperCase(),
-      installation_type: type === "__new" ? o.installation_type : type,
       price_per_kwp: pos(fd, "price_per_kwp"), subtotal_omr: null,
       // the older single-equipment fields are replaced by the sub-systems
       module_id: null, module_count: null, inverter_id: null, inverter_qty: null, dc_kwp: null, ac_kw: null, split_system: undefined,
       annual_gen_kwh: pos(fd, "annual_gen_kwh"), specific_yield: pos(fd, "specific_yield") ?? SPECIFIC_YIELD,
       pr_pct: pos(fd, "pr_pct"), shading_loss_pct: float(fd, "shading_loss_pct"),
       tariff_bz: float(fd, "tariff_bz") ?? 32, degradation_pct: float(fd, "degradation_pct") ?? 0.65,
-      elevation_m: pos(fd, "elevation_m"), tilt_deg: float(fd, "tilt_deg"), azimuth_deg: float(fd, "azimuth_deg"),
+      // design type, height, tilt and azimuth are kept per sub-system
+      installation_type: undefined, elevation_m: undefined, tilt_deg: undefined, azimuth_deg: undefined,
       subsystems: subsystems.map((r) => ({ ...r, inverters: r.inverters.map((x) => ({ ...x })) })),
       schedule: schedule.map((a) => ({ ...a })), logo_corners: { ...corners },
     };
@@ -469,7 +463,8 @@ export async function quick(main, { params, query }) {
   const subBox = main.querySelector("#subsystems");
   const invById = new Map(all.inverters.map((x) => [x.id, x]));
   const ratioText = (r) => (r === null ? "—" : num(r, 2));
-  const blankSub = () => ({ name: "", desc: "", module_id: subsystems.at(-1)?.module_id || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null });
+  const blankSub = () => ({ name: "", desc: "", installation_type: subsystems.at(-1)?.installation_type || DEFAULT_INSTALLATION,
+    elevation_m: null, tilt_deg: null, azimuth_deg: null, module_id: subsystems.at(-1)?.module_id || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null });
   let picks = [];  // suggested combinations per sub-system, as last drawn
   function drawSubsystems() {
     const many = subsystems.length > 1;
@@ -479,6 +474,12 @@ export async function quick(main, { params, query }) {
         <input data-f="desc" value="${r.desc || ""}" placeholder="Description, e.g. Block A roof, facing east" aria-label="Description" class="grow">
         ${many ? html`<button type="button" class="btn small" data-ss-del="${i}" title="Remove this sub-system">×</button>` : ""}</div>
       <div class="fields">
+        <label>Design type <select data-f="installation_type">${designTypes.map((t) => html`<option ${sel(t === r.installation_type)}>${t}</option>`)}<option value="__new">Add a type…</option></select></label>
+        <label>Structure height (m) <input data-f="elevation_m" value="${g(r.elevation_m)}" inputmode="decimal"></label>
+        <label>Tilt (°) <input data-f="tilt_deg" value="${g(r.tilt_deg)}" inputmode="decimal"></label>
+        <label>Azimuth (°) <input data-f="azimuth_deg" value="${g(r.azimuth_deg)}" inputmode="decimal" placeholder="180 = south"></label>
+      </div>
+      <div class="fields spaced-top">
         <label class="wide">PV module <select data-f="module_id">${moduleOptions(all.modules, r.module_id, { blank: "Not in the library (type the DC capacity)" })}</select></label>
         <label>Number of panels <input data-f="modules" value="${g(r.modules)}" inputmode="numeric"></label>
         <label>DC capacity (kWp) <input data-f="dc_kwp" value="${g(r.dc_kwp)}" inputmode="decimal"><span class="hint" data-out="dc-how"></span></label>
@@ -552,12 +553,31 @@ export async function quick(main, { params, query }) {
     else if (el.dataset.f === "modules") r.modules = wholeNum(el.value);
     else if (el.dataset.f === "dc_kwp") r.dc_kwp = posNum(el.value);
     else if (el.dataset.f === "ac_kw") r.ac_kw = posNum(el.value);
+    else if (el.dataset.f === "elevation_m") r.elevation_m = posNum(el.value);
+    else if (el.dataset.f === "tilt_deg" || el.dataset.f === "azimuth_deg") {
+      const n = Number(el.value);
+      r[el.dataset.f] = el.value.trim() && Number.isFinite(n) ? n : null;
+    }
     else if (el.dataset.invF === "qty") r.inverters[Number(el.closest("[data-inv]").dataset.inv)].qty = wholeNum(el.value);
   });
-  subBox.addEventListener("change", (e) => {
+  subBox.addEventListener("change", async (e) => {
     const el = e.target;
     if (el.tagName !== "SELECT" || !el.closest("[data-ss]")) return;
     const r = subOf(el), id = Number(el.value) || null;
+    if (el.dataset.f === "installation_type") {
+      // a new design type is added on the spot and kept for later offers
+      if (el.value === "__new") {
+        const name = (window.prompt("New design type (e.g. Metal Sheet Roof):") || "").trim();
+        if (name && !designTypes.includes(name)) {
+          designTypes.push(name);
+          await db.setSetting("design_types", [...(await db.getSetting("design_types", [])), name]);
+        }
+        if (name) r.installation_type = name;
+      } else r.installation_type = el.value;
+      drawSubsystems();
+      preview();
+      return;
+    }
     if (el.dataset.f === "module_id") r.module_id = id;
     else if (el.dataset.invF === "inverter_id") r.inverters[Number(el.closest("[data-inv]").dataset.inv)].inverter_id = id;
     drawSubsystems();
@@ -710,9 +730,14 @@ export async function quick(main, { params, query }) {
       }
       put("shading_loss_pct", f.shading_loss_pct, `${num(f.shading_loss_pct, 1)}% shading losses`);
       if (f.annual_gen_kwh) o.energy_source = "helioscope";
-      put("tilt_deg", f.tilt_deg, "tilt");
-      put("azimuth_deg", f.azimuth_deg, "azimuth");
-      if (/carport/i.test(f.racking || "")) put("installation_type", "Carpark", "design type");
+      // tilt, azimuth and design type of the main field segment, when the system is one sub-system
+      if (subsystems.length === 1) {
+        const r = subsystems[0];
+        if (f.tilt_deg !== undefined) { r.tilt_deg = f.tilt_deg; filled.push("tilt"); }
+        if (f.azimuth_deg !== undefined) { r.azimuth_deg = f.azimuth_deg; filled.push("azimuth"); }
+        if (/carport/i.test(f.racking || "")) { r.installation_type = "Carpark"; filled.push("design type"); }
+        drawSubsystems();
+      }
       // the usual pictures go on their slides when those are empty
       const set = [];
       for (const slot of ["site", "shadow", "structure", "structure2"]) {
@@ -846,18 +871,6 @@ export async function quick(main, { params, query }) {
     drawGantt();
   });
 
-  // ---- design types: add one on the spot
-  form.elements.installation_type.addEventListener("change", async (e) => {
-    if (e.target.value !== "__new") { o.installation_type = e.target.value; return; }
-    const name = (window.prompt("New design type (e.g. Metal Sheet Roof):") || "").trim();
-    if (!name) { e.target.value = o.installation_type; return; }
-    const custom = await db.getSetting("design_types", []);
-    if (!designTypes.includes(name)) { designTypes.push(name); await db.setSetting("design_types", [...custom, name]); }
-    e.target.querySelector('[value="__new"]').insertAdjacentHTML("beforebegin", html`<option>${name}</option>`.toString());
-    e.target.value = name;
-    o.installation_type = name;
-    preview();
-  });
   form.elements.reference_code.addEventListener("input", (e) => { codeEdited = e.target.value.trim() !== ""; });
 
   async function save() {
