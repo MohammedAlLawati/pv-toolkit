@@ -15,7 +15,7 @@ where they sign in (`web/js/cloud.js`). Without one, nothing changes: data stays
      (and `http://localhost:8000/**` for local testing).
 4. **Project Settings → API**: copy the Project URL and the `anon` public key into
    `web/js/cloud_config.js`, then republish the site.
-5. Sign in once on the site (Letterhead & backup → Cloud account). Then, while it's just you,
+5. Sign in once on the site (top of the menu → Sign in). Then, while it's just you,
    turn off **Authentication → Sign In / Providers → Allow new users to sign up**, so nobody
    else can create an account.
 
