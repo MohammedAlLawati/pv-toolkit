@@ -30,6 +30,8 @@ const ROUTES = [
   ["/parties/new", "parties", "form", "parties"],
   ["/parties/:id", "parties", "form", "parties"],
   ["/settings", "settings", "settings", "settings"],
+  ["/account", "account", "account", "account"],
+  ["/welcome", "account", "welcome", "account"],
   ["/offers", "offers", "list", "offers"],
   ["/offers/new", "offers", "quick", "offers"],
   ["/offers/quick/:id", "offers", "quick", "offers"],
@@ -68,6 +70,7 @@ async function route() {
   const main = document.getElementById("view");
   const m = match(path);
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", !!m && a.dataset.nav === m.nav));
+  document.querySelector(".shell").classList.toggle("gate", m?.fn === "welcome");
   if (!m) { main.innerHTML = `<div class="panel empty">Page not found. <a href="#/">Go to the dashboard</a>.</div>`; return; }
   try {
     const page = await import(`./pages/${m.mod}.js`);
@@ -118,16 +121,25 @@ window.addEventListener("unhandledrejection", (e) => toast(String(e.reason?.mess
   await cloud.start();
   await Promise.race([cloud.sync(), new Promise((r) => setTimeout(r, 4000))]);
   await ensureDefaultProfile();
+  // first opening: sign in, or continue as a guest
+  if (cloud.configured && !cloud.signedIn() && !cloud.isGuest() && !/^#\/(welcome|account)\b/.test(location.hash)) {
+    try { sessionStorage.setItem("pv-toolkit-after-welcome", location.hash || "#/"); } catch { /* back to the dashboard */ }
+    location.replace("#/welcome");  // hashchange routes it
+    return;
+  }
   route();
 })();
 
-// The side menu's note says where the data is kept.
-const note = document.querySelector(".side .local");
+// The menu: "User info" at the top when signed in ("Sign in" otherwise), and a sync meter at the bottom.
+const note = document.querySelector(".side .local"), navAccount = document.getElementById("nav-account");
 cloud.onStatus((s) => {
-  if (!note || !cloud.configured) return;
+  if (!cloud.configured) return;
+  navAccount.hidden = false;
+  navAccount.textContent = s.email ? "User info" : "Sign in";
   note.innerHTML = s.email
-    ? `Saved to the cloud as ${esc(s.email)}${s.error ? ` · <b>sync problem</b>` : s.pending ? ` · ${s.pending} change${s.pending === 1 ? "" : "s"} to send` : ""}. <a href="#/settings">Account</a>`
-    : `Your data is kept in this browser only. <a href="#/settings">Sign in</a> to save it to the cloud.`;
+    ? `<div class="side-sync ${s.error ? "bad" : s.busy || s.pending ? "busy" : "ok"}"><div class="meter"><i style="width:${(cloud.syncShare(s) * 100).toFixed(1)}%"></i></div>
+       <a href="#/account">${esc(cloud.syncText(s))}</a></div>`
+    : `Your data is kept in this browser only. <a href="#/account">Sign in</a> to save it to the cloud.`;
 });
 // Changes from another device: show them, unless a form is open here.
 addEventListener("cloud-pulled", () => {

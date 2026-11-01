@@ -98,6 +98,12 @@ export function put(store, record) {
 export const putRaw = (store, rec) => tx(store, "readwrite", (s) => wrap(s.put(rec)));
 export const delRaw = (store, id) => tx(store, "readwrite", (s) => wrap(s.delete(id)));
 export const outbox = () => tx(OUTBOX, "readonly", (s) => wrap(s.getAll()));
+/** How many records (files included) this browser holds. */
+export async function countAll() {
+  let n = 0;
+  for (const name of STORES) n += await tx(name, "readonly", (s) => wrap(s.count()));
+  return n;
+}
 /** Remove an outbox entry, unless it was replaced by a newer change while it was being sent. */
 export const outboxDone = (entry) => tx(OUTBOX, "readwrite", async (s) => {
   const cur = await wrap(s.get(entry.key));

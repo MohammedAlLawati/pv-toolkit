@@ -9,9 +9,33 @@ import { CLOUD } from "./cloud_config.js";
 import * as db from "./store.js";
 
 export const configured = !!(CLOUD.url && CLOUD.anonKey);
+export const signedIn = () => !!user;
+
+// "Continue as guest" on the welcome screen: the app works in this browser only, as before.
+const GUEST = "pv-toolkit-guest";
+export const isGuest = () => { try { return localStorage.getItem(GUEST) === "1"; } catch { return false; } };
+export const setGuest = (on) => { try { on ? localStorage.setItem(GUEST, "1") : localStorage.removeItem(GUEST); } catch { /* asked again next time */ } };
+
+/** One line on how much of this browser's data is in the cloud. */
+export function syncText(s) {
+  if (s.error) return `Sync problem: ${s.error}`;
+  if (s.progress) return `${s.progress.label} ${s.progress.done} of ${s.progress.total}…`;
+  const saved = Math.max(0, s.total - s.pending), pct = s.total ? Math.floor((saved / s.total) * 100) : 100;
+  return `${pct}% synced · ${saved} of ${s.total} items in the cloud${s.last ? ` · checked ${ago(s.last)}` : ""}`;
+}
+/** 0..1, for a progress bar. */
+export function syncShare(s) {
+  if (s.progress) return s.progress.total ? s.progress.done / s.progress.total : 0;
+  return s.total ? Math.max(0, s.total - s.pending) / s.total : 1;
+}
+export function ago(d) {
+  const sec = Math.round((Date.now() - d) / 1000);
+  return sec < 60 ? "just now" : sec < 3600 ? `${Math.round(sec / 60)} min ago` : new Date(d).toLocaleString();
+}
 
 let client = null, user = null, pushTimer = null, running = null;
-const state = { ready: false, email: null, busy: false, pending: 0, last: null, error: null };
+// total: records in this browser; pending: those not yet in the cloud; progress: { label, done, total } while syncing
+const state = { ready: false, email: null, busy: false, pending: 0, total: 0, progress: null, last: null, error: null };
 const listeners = new Set();
 /** Call fn(state) now and whenever the sign-in or sync state changes; returns an unsubscribe. */
 export function onStatus(fn) { listeners.add(fn); fn({ ...state }); return () => listeners.delete(fn); }
@@ -65,9 +89,9 @@ function setUser(u) {
   if (changed && u) sync();
 }
 
-/** Email a sign-in link; it brings the user back to the settings page, signed in. */
+/** Email a sign-in link; it brings the user back to the account page, signed in. */
 export async function signIn(email) {
-  const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname + "#/settings" } });
+  const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname + "#/account" } });
   if (error) throw error;
 }
 
@@ -77,7 +101,7 @@ export async function signOut() {
   set({ email: null, last: null });
 }
 
-async function refreshPending() { set({ pending: (await db.outbox()).length }); }
+async function refreshPending() { set({ pending: (await db.outbox()).length, total: await db.countAll() }); }
 
 function schedulePush() {
   clearTimeout(pushTimer);
@@ -102,7 +126,7 @@ export function sync() {
       set({ error: err.message || String(err) });
     } finally {
       running = null;
-      set({ busy: false });
+      set({ busy: false, progress: null });
       refreshPending();
     }
   })();
@@ -116,7 +140,9 @@ async function pull() {
     const { data: rows, error } = await client.from("records").select("store, rid, data, deleted, server_at")
       .gt("server_at", cursor).order("server_at").limit(500);
     if (error) throw error;
+    let n = 0;
     for (const row of rows) {
+      if (rows.length > 20 && ++n % 10 === 0) set({ progress: { label: "Downloading from the cloud:", done: n, total: rows.length } });
       if (!db.STORES.includes(row.store)) continue;
       const id = ridToId(row.store, row.rid), key = `${row.store}:${id}`;
       const local = await db.get(row.store, id);
@@ -146,6 +172,9 @@ async function pull() {
 async function push() {
   const entries = await db.outbox();
   const rows = [], done = [];
+  let sent = 0;
+  const step = () => set({ progress: { label: "Uploading to the cloud:", done: sent, total: entries.length } });
+  if (entries.length) step();
   for (const e of entries) {
     const rid = String(e.id), base = { user_id: user.id, store: e.store, rid };
     const rec = e.op === "put" ? await db.get(e.store, e.id) : null;
@@ -163,9 +192,23 @@ async function push() {
       rows.push({ ...base, deleted: false, data: rec });
     }
     done.push(e);
-    if (rows.length >= 200) await send(rows.splice(0), done.splice(0));
+    if (rows.length >= (e.store === "files" ? 1 : 50)) { sent += rows.length; await send(rows.splice(0), done.splice(0)); step(); }
   }
   if (rows.length) await send(rows, done);
+}
+
+/** What the signed-in user has in the cloud: { records, files, bytes } (file bytes; records are small). */
+export async function usage() {
+  const { count, error } = await client.from("records").select("rid", { count: "exact", head: true }).eq("deleted", false);
+  if (error) throw error;
+  let files = 0, bytes = 0;
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error: e } = await client.storage.from(BUCKET).list(user.id, { limit: 1000, offset });
+    if (e) throw e;
+    for (const f of data) { files++; bytes += f.metadata?.size || 0; }
+    if (data.length < 1000) break;
+  }
+  return { records: count || 0, files, bytes };
 }
 
 async function send(rows, entries) {
