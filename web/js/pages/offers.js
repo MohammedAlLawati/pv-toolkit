@@ -717,7 +717,7 @@ export async function quick(main, { params, query }) {
   async function applyReports() {
     const found = main.querySelector("#report-found");
     try {
-      const { parseReport, monthsFromBars, monthsAgree } = await import("../offer/helioscope.js");
+      const { parseReport, monthsFromBars, monthsAgree, tableNote } = await import("../offer/helioscope.js");
       for (const x of [...report.images, ...report.pages]) URL.revokeObjectURL(x.url);
       report.images = []; report.pages = [];
       let text = "", bars = null, table = null;
@@ -729,12 +729,13 @@ export async function quick(main, { params, query }) {
         table ||= r.table;
       }
       const f = parseReport(text, { modules: all.modules, inverters: all.inverters });
-      // monthly: the Solar Access by Month table (as text, or read off the scan and checked against
-      // the annual figure and the bar chart), else measured off the bar chart
-      const fromBars = monthsFromBars(bars, f.annual_gen_kwh);
-      const tableOk = !f.monthly_kwh && monthsAgree(table, fromBars, f.annual_gen_kwh);
-      const exact = f.monthly_kwh || (tableOk ? table : null);
-      const monthly = exact || fromBars;
+      // monthly: the AC Power row of the shading report's Solar Access by Month table (as text, or
+      // read off the scanned page). The production report's bar chart is measured only when no
+      // shading report is loaded; with one loaded and its table unreadable, the months are left to type.
+      const exact = f.monthly_kwh || (monthsAgree(table) ? table : null);
+      const monthly = exact || (loaded.shading ? null : monthsFromBars(bars, f.annual_gen_kwh));
+      const monthsNote = exact ? tableNote(exact, f.annual_gen_kwh)
+        : loaded.shading ? "The Solar Access by Month table in the shading report couldn't be read. Type the 12 AC Power (kWh) figures under \"Change the figures\"." : "";
       // the reports' figures replace what's in the form (all can be edited afterwards)
       const filled = [];
       const put = (name, value, label) => { if (value !== undefined && value !== null) { setField(name, value); filled.push(label); } };
@@ -762,6 +763,12 @@ export async function quick(main, { params, query }) {
         showMonths(o.monthly_kwh);
         filled.push(exact ? "monthly generation (Solar Access by Month table)" : "monthly generation (read off the chart)");
       }
+      else if (o.monthly_source === "chart") {
+        // figures measured off the chart earlier give way to the shading report's table, even an unreadable one
+        o.monthly_kwh = null; o.monthly_source = null;
+        form.elements.monthly_text.value = "";
+        showMonths(null);
+      }
       put("shading_loss_pct", f.shading_loss_pct, `${num(f.shading_loss_pct, 1)}% shading losses`);
       if (f.annual_gen_kwh) o.energy_source = "helioscope";
       // tilt, azimuth and design type of the main field segment, when the system is one sub-system
@@ -783,6 +790,7 @@ export async function quick(main, { params, query }) {
         <div class="flash ${filled.length ? "ok" : "warn"} spaced-top">${filled.length ? `Filled in from the reports: ${filled.join(", ")}.` : "No system figures found in these reports; fill them in by hand."}
           ${set.length ? ` Pictures: ${set.join(", ")}.` : ""}${kept}</div>
         ${notInLibrary.length ? html`<div class="flash warn">The ${notInLibrary.join(" and ")} named in the report isn't in the equipment library, so the capacity was typed in instead. <a href="#/library">Add it to the library</a> to get its spec slide.</div>` : ""}
+        ${monthsNote ? html`<div class="flash warn">${monthsNote}</div>` : ""}
         ${f.shading_loss_pct > SHADING_LIMIT_PCT ? html`<div class="flash warn">Shading losses in the report are ${num(f.shading_loss_pct, 1)}%, above ${SHADING_LIMIT_PCT}%.</div>` : ""}`;
       drawPics();
       drawReport();
