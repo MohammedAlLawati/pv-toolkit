@@ -373,22 +373,23 @@ test("monthly figures from the Solar Access by Month table", async () => {
   assert.equal(f.monthly_kwh[11], 64230.1);
 });
 
-test("monthly figures read off the scanned table: separators repaired, then checked against the chart", async () => {
+test("monthly figures read off the scanned table: separators repaired, then checked as a plausible year", async () => {
   const { acPowerRow, monthsAgree } = await import("../js/offer/helioscope.js");
   // as recognised on the sample shading report: some decimal points are lost
   const ocr = "Solar Access, weighted by kWp 99.9% 99.9%\nAC Power (kWh) 67,8923 70,7849 84,3921 92,930.6 97,8316 945177 91,378.6 883020 83,8026 80,919.8 69,831.8 64,230.1\nlL. Monthlv Production";
   const months = acPowerRow(ocr);
   assert.deepEqual(months, [67892.3, 70784.9, 84392.1, 92930.6, 97831.6, 94517.7, 91378.6, 88302, 83802.6, 80919.8, 69831.8, 64230.1]);
   assert.equal(acPowerRow("AC Power (kWh) 67,892.3 70,784.9"), null);
-  const bars = months.map((m, i) => m * (i % 2 ? 1.01 : 0.99));
-  assert.ok(monthsAgree(months, bars, 986800));
-  assert.ok(!monthsAgree(months, bars, 900000), "must add up to the annual figure");
+  // as recognised on another shading report (four field segments)
+  assert.deepEqual(acPowerRow("AC Power (kwh) 71,2117 74,2282 884751 97,391.9 102567.4 99,101.0 958325 92,6004 87,870.0 84,8437 73,2263 67,370.9"),
+    [71211.7, 74228.2, 88475.1, 97391.9, 102567.4, 99101, 95832.5, 92600.4, 87870, 84843.7, 73226.3, 67370.9]);
+  const { tableNote } = await import("../js/offer/helioscope.js");
+  // the table is the source: it isn't rejected for differing from the chart or the annual figure
+  assert.ok(monthsAgree(months));
+  assert.equal(tableNote(months, 986800), "");
+  assert.match(tableNote(months, 900000), /adds up to 986,814 kWh, the production report says 900,000 kWh/);
   const misread = [...months]; misread[3] = 9293.1; misread[4] += 92930.6 - 9293.1;
-  assert.ok(!monthsAgree(misread, bars, 986800), "a misread month is caught by the chart");
-  // the shading report on its own: no chart, no annual figure; a lost digit is still caught
-  assert.ok(monthsAgree(months, null, 986800));
-  assert.ok(monthsAgree(months, null, null));
-  assert.ok(!monthsAgree(misread, null, null), "a month far too small for its year");
+  assert.ok(!monthsAgree(misread), "a month far too small for its year");
 });
 
 test("schedule rows follow the Gantt chart: added activities get rows", async () => {

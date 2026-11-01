@@ -328,17 +328,21 @@ export function acPowerRow(text) {
 }
 
 /**
- * Whether recognised monthly figures can be trusted: each month is a plausible share of the year
- * (3% to 15%, which catches a lost or doubled digit), they add up to the annual figure within 1%
- * when the simulation report gave one, and each month is within 4% of the bar chart when there is one.
+ * Whether recognised monthly figures are a plausible year: each month 3% to 15% of the total,
+ * which catches a lost or doubled digit. The table is the source, so it is not checked against
+ * the bar chart or the production report's annual figure (see tableNote for a mismatch).
  */
-export function monthsAgree(months, barMonths, annualKwh) {
+export function monthsAgree(months) {
   if (!months || months.length !== 12) return false;
   const sum = months.reduce((a, b) => a + b, 0);
-  if (!(sum > 0) || months.some((m) => m < 0.03 * sum || m > 0.15 * sum)) return false;
-  if (annualKwh && Math.abs(sum - annualKwh) > 0.01 * annualKwh) return false;
-  if (barMonths && !months.every((m, i) => Math.abs(m - barMonths[i]) <= 0.04 * barMonths[i])) return false;
-  return true;
+  return sum > 0 && months.every((m) => m >= 0.03 * sum && m <= 0.15 * sum);
+}
+
+/** A note when the table's total and the production report's annual figure differ by more than 1%. */
+export function tableNote(months, annualKwh) {
+  const sum = months.reduce((a, b) => a + b, 0);
+  if (!annualKwh || Math.abs(sum - annualKwh) <= 0.01 * annualKwh) return "";
+  return `The Solar Access table adds up to ${Math.round(sum).toLocaleString("en-US")} kWh, the production report says ${Math.round(annualKwh).toLocaleString("en-US")} kWh a year. Check both reports are for the same design.`;
 }
 
 /** Read the scanned table's AC Power row off the top of the page (null when it can't). */
