@@ -312,7 +312,9 @@ test("sub-systems: own module and inverter mix, ratio checks, and the breakdown 
   assert.ok(text.includes("System Breakdown"));
   assert.ok(text.includes(">Elevated Flat Roof, 2.5 m high, 5° tilt, 109° (East)<"), "mounting of sub-system 1");
   assert.ok(text.includes(">Carpark, 3 m high, 10° tilt, 289° (West)<"), "mounting of sub-system 2");
-  assert.ok(text.includes("Installation Type: Elevated Flat Roof and Carpark"), "slide 17 names both design types");
+  // slide 17: each sub-system's figures
+  for (const x of ["Installation Type: Elevated Flat Roof / Carpark", "Tilt(s): 5° / 10°", "Azimuths (Orientation): 109° (East) / 289° (West)",
+                   "Height: Elevated Flat Roof 2.5 m / Carpark 3 m"]) assert.ok(text.replace(/<\/a:t><\/a:r><a:r>(<a:rPr[^>]*\/>|<a:rPr[^>]*>.*?<\/a:rPr>)<a:t>/g, "").includes(x), x);
   for (const x of ["POC 1: East roof", "435", "313.2", "1 × SG150CX + 1 × SG125CX-P2", "275", "1.14", "POC 2: West roofs", "266.4",
                    "2 × SG125CX-P2", "579.6", "805", "525", "4 inverters", "1.1"]) assert.ok(text.includes(`>${x}<`), x);
   assert.ok(text.includes("1 × 150kW (SG150CX) and 3 × 125kW (SG125CX-P2)"), "slide 27 names both inverter models");
@@ -383,7 +385,10 @@ test("monthly figures read off the scanned table: separators repaired, then chec
   assert.ok(!monthsAgree(months, bars, 900000), "must add up to the annual figure");
   const misread = [...months]; misread[3] = 9293.1; misread[4] += 92930.6 - 9293.1;
   assert.ok(!monthsAgree(misread, bars, 986800), "a misread month is caught by the chart");
-  assert.ok(!monthsAgree(months, null, 986800));
+  // the shading report on its own: no chart, no annual figure; a lost digit is still caught
+  assert.ok(monthsAgree(months, null, 986800));
+  assert.ok(monthsAgree(months, null, null));
+  assert.ok(!monthsAgree(misread, null, null), "a month far too small for its year");
 });
 
 test("schedule rows follow the Gantt chart: added activities get rows", async () => {

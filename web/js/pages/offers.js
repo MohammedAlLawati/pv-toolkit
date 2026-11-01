@@ -198,9 +198,9 @@ const KIND_NAMES = { simulation: "Simulation report", shading: "Shading report",
 const CORNERS = [["tl", "↖", "Top left"], ["tr", "↗", "Top right"], ["bl", "↙", "Bottom left"], ["br", "↘", "Bottom right"]];
 // where the 12 monthly figures came from
 const MONTHLY_SOURCE = {
-  table: "Monthly figures: the AC Power (kWh) row of the \"Solar Access by Month\" table on page 2 of the shading report (read off the scanned page and checked against the annual total and the bar chart).",
+  table: "Monthly figures: the AC Power (kWh) row of the \"Solar Access by Month\" table on page 2 of the shading report (read off the scanned page and checked against the report totals).",
   chart: "Monthly figures: measured off the Monthly Production bar chart on page 1 of the simulation report, then scaled to the annual total, so each can be up to about 1% out. Add the shading report for the exact figures from its Solar Access by Month table, or paste them under \"Change the figures\".",
-  typed: "Monthly figures as pasted under \"Change the figures\", scaled to the annual total.",
+  typed: "Monthly figures as entered under \"Change the figures\", scaled to the annual total.",
 };
 // every stored picture of a quick offer: the slide pictures and the client's logo (cover slide)
 const FLASH_OF = { ok: "ok", high: "warn", bad: "error" };
@@ -356,7 +356,10 @@ export async function quick(main, { params, query }) {
         <label>Specific yield (kWh/kWp) <input name="specific_yield" value="${g(o.specific_yield)}" inputmode="decimal" placeholder="${SPECIFIC_YIELD}"></label>
         <label>Performance ratio (%) <input name="pr_pct" value="${g(o.pr_pct)}" inputmode="decimal"></label>
         <label>Shading losses (%) <input name="shading_loss_pct" value="${g(o.shading_loss_pct)}" inputmode="decimal"><span class="hint">Over ${SHADING_LIMIT_PCT}% is flagged on slide 16</span></label>
-        <label class="wide">Monthly generation, Jan to Dec (kWh) <textarea name="monthly_text" rows="2" placeholder="Paste the 12 figures, e.g. the AC Power (kWh) row of Helioscope's Solar Access by Month table">${o.monthly_kwh ? o.monthly_kwh.map((x) => Math.round(x)).join(" ") : ""}</textarea><span class="hint" id="monthly-hint"></span></label>
+        <div class="wide month-edit"><span class="lbl">Monthly generation (kWh)</span>
+          <div class="months">${MONTHS.map((m, i) => html`<label>${m}<input data-month="${i}" inputmode="decimal" value="${o.monthly_kwh ? Math.round(o.monthly_kwh[i]) : ""}"></label>`)}</div>
+          <input type="hidden" name="monthly_text" value="${o.monthly_kwh ? o.monthly_kwh.map((x) => Math.round(x)).join(" ") : ""}">
+          <span class="hint small muted" id="monthly-hint">You can paste all 12 figures into January, e.g. the AC Power (kWh) row of Helioscope's Solar Access by Month table.</span></div>
       </div>
     </details>
   </div>
@@ -756,6 +759,7 @@ export async function quick(main, { params, query }) {
         o.monthly_kwh = monthly.map((x) => Math.round(x * 10) / 10);
         o.monthly_source = exact ? "table" : "chart";
         form.elements.monthly_text.value = o.monthly_kwh.map((x) => Math.round(x)).join(" ");
+        showMonths(o.monthly_kwh);
         filled.push(exact ? "monthly generation (Solar Access by Month table)" : "monthly generation (read off the chart)");
       }
       put("shading_loss_pct", f.shading_loss_pct, `${num(f.shading_loss_pct, 1)}% shading losses`);
@@ -924,12 +928,27 @@ export async function quick(main, { params, query }) {
     return o;
   }
 
-  form.elements.monthly_text.addEventListener("input", (e) => {
-    const vals = parseMonthly(e.target.value);
+  const monthInputs = [...main.querySelectorAll("[data-month]")];
+  function showMonths(vals) { monthInputs.forEach((el, i) => { el.value = vals ? Math.round(vals[i]) : ""; }); }
+  function monthsTyped() {
+    const raw = monthInputs.map((el) => el.value.trim());
     const hint = main.querySelector("#monthly-hint");
+    const vals = raw.every(Boolean) ? parseMonthly(raw.join(" ")) : null;
+    form.elements.monthly_text.value = vals ? raw.join(" ") : "";
     if (vals) { o.monthly_kwh = vals; o.monthly_source = "typed"; hint.textContent = `Total ${num(vals.reduce((a, b) => a + b, 0), 0)} kWh`; }
-    else hint.textContent = e.target.value.trim() ? "Needs 12 figures" : "";
-  });
+    else hint.textContent = raw.some(Boolean) ? `Still needs ${MONTHS.filter((m, i) => !raw[i]).join(", ")}` : "";
+  }
+  for (const el of monthInputs) {
+    el.addEventListener("input", monthsTyped);
+    el.addEventListener("paste", (e) => {
+      const figs = parseMonthly(e.clipboardData.getData("text"));
+      if (!figs) return;
+      e.preventDefault();
+      showMonths(figs);
+      monthsTyped();
+      preview();
+    });
+  }
   form.addEventListener("input", preview);
   form.addEventListener("change", preview);
   form.addEventListener("submit", (e) => e.preventDefault());

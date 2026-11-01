@@ -128,6 +128,27 @@ export function mountingText(r) {
 const pct = (r) => `${fmtNum(r * 100, 0)} %`;
 
 /**
+ * Slide 17's mounting lines, one figure per sub-system when they differ: { MountTypes, TiltLabel,
+ * Tilts, AzimuthLabel, Azimuths, Heights }, e.g. "5° / 10°", "289° (W) / 109° (E)",
+ * "Carpark 2.5 m / Elevated Flat Roof 1.5 m". A single system gives single figures.
+ */
+export function mountingLines(p) {
+  const rows = Array.isArray(p.subsystems) && p.subsystems.length ? p.subsystems : [p];
+  const list = (f) => [...new Set(rows.map(f).filter(Boolean))];
+  const types = list((r) => r.installation_type);
+  const tilts = list((r) => (isNum(r.tilt_deg) ? `${fmtG(r.tilt_deg)}°` : ""));
+  const azimuths = list((r) => (isNum(r.azimuth_deg) ? `${fmtG(r.azimuth_deg)}° (${compass(r.azimuth_deg)})` : ""));
+  const heights = list((r) => (isNum(r.elevation_m) && r.elevation_m > 0
+    ? `${types.length > 1 && r.installation_type ? `${r.installation_type} ` : ""}${fmtG(r.elevation_m)} m` : ""));
+  return {
+    MountTypes: types.join(" / ") || p.installation_type || "",
+    TiltLabel: tilts.length > 1 ? "Tilt(s)" : "Tilt", Tilts: tilts.join(" / ") || "—",
+    AzimuthLabel: azimuths.length > 1 ? "Azimuths (Orientation)" : "Azimuth (Orientation)", Azimuths: azimuths.join(" / ") || "—",
+    Heights: heights.join(" / ") || "—",
+  };
+}
+
+/**
  * The design summary's footnote when the DC/AC ratio (of the system, or of a sub-system) is above
  * DCAC_NOTE: the client confirms it or the offer is resubmitted. "" otherwise.
  */
@@ -259,6 +280,7 @@ export function buildOfferValues(p, today = new Date()) {
   else v.InverterMix = inv.model ? `${s(p.inverter_qty || "")} × ${fmtG(inv.ac_kw)}kW (${inv.model})` : "";
   if (p.inverter_makes) v.InverterMake = p.inverter_makes;
   if (p.installation_mix) v.InstallationType = p.installation_mix;
+  Object.assign(v, mountingLines(p));
 
   componentsOf(p).forEach((c, i) => {
     v[`Comp${i + 1}Name`] = [c.item.make, c.item.model].filter(Boolean).join(" ");

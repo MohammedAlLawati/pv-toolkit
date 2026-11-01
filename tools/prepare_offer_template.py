@@ -133,6 +133,21 @@ def set_para(p, text: str) -> None:
         p.remove(br)
 
 
+def plain_value(root, label: str) -> None:
+    """Split a bold run "Label: value" into a bold label and a plain value."""
+    hits = [t for t in root.iter(q("a:t")) if t.text and t.text.startswith(label) and t.text != label]
+    assert hits, f"no run starting {label!r}"
+    t = hits[0]
+    r = t.getparent()
+    value = copy.deepcopy(r)
+    value.find(q("a:t")).text = t.text[len(label):]
+    rpr = value.find(q("a:rPr"))
+    if rpr is not None and "b" in rpr.attrib:
+        del rpr.attrib["b"]
+    t.text = label
+    r.addnext(value)
+
+
 def para_with(root, needle: str):
     hits = [p for p in root.iter(q("a:p")) if needle in runs_text(p)]
     assert hits, f"no paragraph with {needle!r}"
@@ -554,9 +569,27 @@ def build() -> None:
     s17 = pkg.slide(17)
     tag_logo(s17, "Picture 10", "structure")
     tag_logo(s17, "Picture 1", "structure2")
-    set_run(s17, "Installation Type:", "Installation Type: {{InstallationType}}")
-    set_run(s17, "Tilt / Orientation:", "Tilt / Orientation: {{Tilt}}° / {{Orientation}}")
-    set_run(s17, "Height: m", "Height: {{Elevation}} m")
+    # one figure per sub-system when they differ ("5° / 10°"), see mountingLines in values.js
+    set_run(s17, "Installation Type:", "Installation Type: {{MountTypes}}")
+    tilt = para_with(s17, "Tilt / Orientation:")
+    tilt.addnext(copy.deepcopy(tilt))
+    set_run(s17, "Tilt / Orientation:", "{{TiltLabel}}: {{Tilts}}")
+    set_run(s17, "Tilt / Orientation:", "{{AzimuthLabel}}: {{Azimuths}}")
+    set_run(s17, "Height: m", "Height: {{Heights}}")
+    # each line its own bullet (wind load sat after a line break), labels bold and figures plain
+    inst = para_with(s17, "Installation Type:")
+    br = inst.find(q("a:br"))
+    if br is not None:
+        wind = copy.deepcopy(inst)
+        for el in list(wind):
+            if el.tag != q("a:pPr"):
+                wind.remove(el)
+        for el in list(inst)[list(inst).index(br) + 1:]:
+            wind.append(el)
+        inst.remove(br)
+        inst.addnext(wind)
+    for label in ("Installation Type: ", "{{TiltLabel}}: ", "{{AzimuthLabel}}: ", "Height: "):
+        plain_value(s17, label)
     # 15 design summary
     tbl15 = tables(pkg.slide(15))[0]
     rows = tbl15.findall(q("a:tr"))
