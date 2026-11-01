@@ -328,15 +328,17 @@ export function acPowerRow(text) {
 }
 
 /**
- * Whether recognised monthly figures can be trusted: they add up to the annual figure (within 1%)
- * and each month matches the bar chart's shape (within 4%). Without those to check against, no.
+ * Whether recognised monthly figures can be trusted: each month is a plausible share of the year
+ * (3% to 15%, which catches a lost or doubled digit), they add up to the annual figure within 1%
+ * when the simulation report gave one, and each month is within 4% of the bar chart when there is one.
  */
 export function monthsAgree(months, barMonths, annualKwh) {
   if (!months || months.length !== 12) return false;
   const sum = months.reduce((a, b) => a + b, 0);
-  if (!annualKwh || Math.abs(sum - annualKwh) > 0.01 * annualKwh) return false;
-  if (!barMonths) return false;
-  return months.every((m, i) => Math.abs(m - barMonths[i]) <= 0.04 * barMonths[i]);
+  if (!(sum > 0) || months.some((m) => m < 0.03 * sum || m > 0.15 * sum)) return false;
+  if (annualKwh && Math.abs(sum - annualKwh) > 0.01 * annualKwh) return false;
+  if (barMonths && !months.every((m, i) => Math.abs(m - barMonths[i]) <= 0.04 * barMonths[i])) return false;
+  return true;
 }
 
 /** Read the scanned table's AC Power row off the top of the page (null when it can't). */
@@ -353,7 +355,8 @@ async function readTable(canvas, onProgress) {
     try {
       await worker.setParameters({ tessedit_pageseg_mode: "6" });
       const { data } = await worker.recognize(top);
-      return acPowerRow(data.text);
+      // a report with more field segments pushes the row further down: look at the top half too
+      return acPowerRow(data.text) || acPowerRow((await worker.recognize(canvas, { rectangle: { left: 0, top: 0, width: canvas.width, height: Math.round(canvas.height / 2) } })).data.text);
     } finally { await worker.terminate(); }
   } catch (err) {
     console.warn("Solar Access table not read:", err);

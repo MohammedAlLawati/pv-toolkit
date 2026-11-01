@@ -244,12 +244,19 @@ table.points td:first-child { width: 28px; }
 
 /* offer deck page: monthly energy bars */
 .missing-text { color: var(--warn); }
-.bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; height: 140px; align-items: end; margin: 6px 0 10px; }
-.bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; text-align: center; }
-.bar i { display: block; background: var(--sun); border-radius: 3px 3px 0 0; min-height: 2px; }
-.bar span { font-size: 10.5px; color: var(--ink-3); margin-top: 3px; }
-.bars.labelled { height: 170px; }
-.bar em { font-style: normal; font-size: 10px; color: var(--ink-2); margin-bottom: 2px; }
+.bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px; height: 140px; align-items: end; margin: 6px 0 10px; padding: 0 4px; border-bottom: 1px solid var(--line-2);
+  background: repeating-linear-gradient(to top, transparent 0, transparent calc(25% - 1px), var(--line) calc(25% - 1px), var(--line) 25%); }
+.bars .bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; text-align: center; position: relative; gap: 0; margin: 0; padding: 0; background: none; }
+.bars .bar i { display: block; width: 42%; max-width: 22px; min-width: 8px; background: var(--sun); border-radius: 3px 3px 0 0; min-height: 2px; }
+.bars .bar:hover i { filter: brightness(0.9); }
+.bars .bar span { position: absolute; bottom: -20px; left: 0; right: 0; font-size: 10.5px; color: var(--ink-3); }
+.bars.labelled { height: 170px; margin-bottom: 28px; }
+.bars .bar em { font-style: normal; font-size: 10px; color: var(--ink-2); margin-bottom: 3px; white-space: nowrap; }
+.month-edit .lbl { display: block; margin-bottom: 4px; }
+.months { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px 8px; }
+.months label { font-size: 11.5px; color: var(--ink-3); display: flex; flex-direction: column; gap: 2px; }
+.months input { width: 100%; }
+@media (max-width: 700px) { .months { grid-template-columns: repeat(4, 1fr); } }
 
 /* quick offer form: pictures, report thumbnails, crop dialog */
 .pics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
