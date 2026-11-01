@@ -445,7 +445,7 @@ export async function quick(main, { params, query }) {
       </div>
       <p class="small muted">${source ? (cur.energy_source === "helioscope" && source !== "yield" ? ENERGY_SOURCE.helioscope : ENERGY_SOURCE[source]) : "Pick the module and number of panels, or add the reports."}
         ${months && Array.isArray(p.monthly_kwh) ? MONTHLY_SOURCE[cur.monthly_source] || "" : months ? "Monthly figures: the annual figure spread over a typical Oman year." : ""}</p>`;
-    main.querySelector("#energy-chart").innerHTML = months && Array.isArray(p.monthly_kwh) ? monthlyBars(months).toString() : "";
+    main.querySelector("#energy-chart").innerHTML = months ? monthlyBars(months).toString() : "";
 
     // payback
     const deg = flow?.degradation;

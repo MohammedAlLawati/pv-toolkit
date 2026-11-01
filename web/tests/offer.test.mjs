@@ -384,6 +384,10 @@ test("monthly figures read off the scanned table: separators repaired, then chec
   assert.deepEqual(acPowerRow("AC Power (kwh) 71,2117 74,2282 884751 97,391.9 102567.4 99,101.0 958325 92,6004 87,870.0 84,8437 73,2263 67,370.9"),
     [71211.7, 74228.2, 88475.1, 97391.9, 102567.4, 99101, 95832.5, 92600.4, 87870, 84843.7, 73226.3, 67370.9]);
   const { tableNote } = await import("../js/offer/helioscope.js");
+  const { acPowerText } = await import("../js/offer/helioscope.js");
+  assert.deepEqual(acPowerText("Solar Access, weighted by kWp 99.9% 99.8% AC Power (kWh) 71,211.7 74,228.2 88,475.1 97,391.9 102,567.4 99,101.0 95,832.5 92,600.4 87,870.0 84,843.7 73,226.3 67,370.9 Monthly"),
+    [71211.7, 74228.2, 88475.1, 97391.9, 102567.4, 99101, 95832.5, 92600.4, 87870, 84843.7, 73226.3, 67370.9]);
+  assert.equal(acPowerText("no table here"), null);
   // the table is the source: it isn't rejected for differing from the chart or the annual figure
   assert.ok(monthsAgree(months));
   assert.equal(tableNote(months, 986800), "");
