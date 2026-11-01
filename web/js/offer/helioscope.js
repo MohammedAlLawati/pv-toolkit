@@ -306,8 +306,9 @@ export async function readReport(file, onProgress = () => {}) {
     if (kind === "shading" && pageTexts[n - 1].trim().length < 20) {
       const panels = scannedPanels(ctx);
       for (const [i, r] of panels.entries()) images.push({ ...(await cut(canvas, r.x, r.y, r.w, r.h)), page: n, slot: i ? "structure2" : "structure" });
-      table ||= await readTable(canvas, onProgress);
     }
+    // the Solar Access by Month table: from the page's text when it has it, else read off the page image
+    if (kind === "shading" && !table && n > 1) table = acPowerText(pageTexts[n - 1]) || await readTable(canvas, onProgress);
     page.cleanup();
   }
   await pdf.destroy();
@@ -345,7 +346,16 @@ export function tableNote(months, annualKwh) {
   return `The Solar Access table adds up to ${Math.round(sum).toLocaleString("en-US")} kWh, the production report says ${Math.round(annualKwh).toLocaleString("en-US")} kWh a year. Check both reports are for the same design.`;
 }
 
-/** Read the scanned table's AC Power row off the top of the page (null when it can't). */
+/** The 12 figures after "AC Power (kWh)" in a page's own text, in whatever order it was laid out. */
+export function acPowerText(text) {
+  const t = String(text).replace(/\s+/g, " ");
+  const i = t.search(/AC\s*Power\s*\(\s*kWh\s*\)/i);
+  if (i < 0) return null;
+  const vals = [...t.slice(i).matchAll(/\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d{4,}(?:\.\d+)?\b/g)].slice(0, 12).map((m) => Number(m[0].replace(/,/g, "")));
+  return vals.length === 12 && monthsAgree(vals) ? vals : null;
+}
+
+/** Read the table's AC Power row off the page image: the top quarter, the top half, then the whole page. */
 async function readTable(canvas, onProgress) {
   try {
     onProgress("Reading the Solar Access by Month table…");
@@ -360,7 +370,10 @@ async function readTable(canvas, onProgress) {
       await worker.setParameters({ tessedit_pageseg_mode: "6" });
       const { data } = await worker.recognize(top);
       // a report with more field segments pushes the row further down: look at the top half too
-      return acPowerRow(data.text) || acPowerRow((await worker.recognize(canvas, { rectangle: { left: 0, top: 0, width: canvas.width, height: Math.round(canvas.height / 2) } })).data.text);
+      const ok = (text) => { const v = acPowerRow(text); return monthsAgree(v) ? v : null; };
+      return ok(data.text)
+        || ok((await worker.recognize(canvas, { rectangle: { left: 0, top: 0, width: canvas.width, height: Math.round(canvas.height / 2) } })).data.text)
+        || ok((await worker.recognize(canvas)).data.text);
     } finally { await worker.terminate(); }
   } catch (err) {
     console.warn("Solar Access table not read:", err);
