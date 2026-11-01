@@ -53,7 +53,10 @@ export const byUpdated = (rows) => [...rows].sort((a, b) => (b.updated_at || "")
 export async function ensureDefaultProfile() {
   let rows = await db.list("rule_profiles");
   if (!rows.length) {
-    await db.put("rule_profiles", { name: DEFAULT_PROFILE_NAME, is_default: true, ...defaults() });
+    // a fixed id and an old date: on a new device, the signed-in user's own profile from the
+    // cloud replaces this one instead of being joined by a second default
+    const old = "1970-01-01T00:00:00.000Z";
+    await db.putRaw("rule_profiles", { id: 1, name: DEFAULT_PROFILE_NAME, is_default: true, ...defaults(), created_at: old, updated_at: old });
     rows = await db.list("rule_profiles");
   } else if (!rows.some((r) => r.is_default)) {
     rows[0].is_default = true;

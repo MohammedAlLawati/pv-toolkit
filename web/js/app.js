@@ -4,6 +4,7 @@
 // ctx = { params, query, route }. Numeric params are converted to numbers.
 import { esc, releaseUrls, toast } from "./ui.js";
 import { ensureDefaultProfile } from "./data.js";
+import * as cloud from "./cloud.js";
 
 // [path, page module, export name, nav item]
 const ROUTES = [
@@ -113,6 +114,23 @@ window.addEventListener("unhandledrejection", (e) => toast(String(e.reason?.mess
     return;
   }
   navigator.storage?.persist?.();
+  // signed in: bring in changes from other devices first (but don't wait long for them)
+  await cloud.start();
+  await Promise.race([cloud.sync(), new Promise((r) => setTimeout(r, 4000))]);
   await ensureDefaultProfile();
   route();
 })();
+
+// The side menu's note says where the data is kept.
+const note = document.querySelector(".side .local");
+cloud.onStatus((s) => {
+  if (!note || !cloud.configured) return;
+  note.innerHTML = s.email
+    ? `Saved to the cloud as ${esc(s.email)}${s.error ? ` · <b>sync problem</b>` : s.pending ? ` · ${s.pending} change${s.pending === 1 ? "" : "s"} to send` : ""}. <a href="#/settings">Account</a>`
+    : `Your data is kept in this browser only. <a href="#/settings">Sign in</a> to save it to the cloud.`;
+});
+// Changes from another device: show them, unless a form is open here.
+addEventListener("cloud-pulled", () => {
+  const typing = document.activeElement?.matches?.("input, textarea, select");
+  if (!typing && !/\/(new|edit)\b|\/quick\b|\/sizing\b|\/yield\b/.test(location.hash)) route();
+});

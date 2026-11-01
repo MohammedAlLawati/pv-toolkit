@@ -4,8 +4,10 @@
 // Most files get a numeric id; a few app-wide ones use fixed string ids ("letterhead_top").
 
 const DB_NAME = "pv-toolkit";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 export const STORES = ["clients", "projects", "parties", "modules", "inverters", "rule_profiles", "files", "settings", "letters", "offers"];
+// Changes waiting to go to the cloud (see cloud.js): { key: "<store>:<id>", store, id, op: "put"|"del" }.
+const OUTBOX = "outbox";
 
 let _db = null;
 
@@ -20,6 +22,7 @@ function open() {
           db.createObjectStore(name, name === "settings" ? { keyPath: "key" } : { keyPath: "id", autoIncrement: true });
         }
       }
+      if (!db.objectStoreNames.contains(OUTBOX)) db.createObjectStore(OUTBOX, { keyPath: "key" });
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
@@ -45,15 +48,74 @@ const wrap = (req) => new Promise((resolve, reject) => {
 
 export const get = (store, id) => tx(store, "readonly", (s) => wrap(s.get(id)));
 export const list = (store) => tx(store, "readonly", (s) => wrap(s.getAll()));
-export const del = (store, id) => tx(store, "readwrite", (s) => wrap(s.delete(id)));
+
+// ---- cloud outbox -----------------------------------------------------------------------
+
+let syncing = false, onQueued = () => {};
+/** Turned on by cloud.js when the app is connected to a cloud project: every change is queued for it. */
+export function enableOutbox(notify) { syncing = true; onQueued = notify || onQueued; }
+const keyOf = (store) => (store === "settings" ? "key" : "id");
+const seq = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+
+/** Write a record and, when syncing, queue it, in one transaction. */
+function write(store, op, idOrRec) {
+  const stores = syncing ? [store, OUTBOX] : [store];
+  return open().then((db) => new Promise((resolve, reject) => {
+    const t = db.transaction(stores, "readwrite");
+    const req = op === "put" ? t.objectStore(store).put(idOrRec) : t.objectStore(store).delete(idOrRec);
+    let result;
+    req.onsuccess = () => {
+      result = req.result;
+      const id = op === "put" ? idOrRec[keyOf(store)] ?? result : idOrRec;
+      if (syncing) t.objectStore(OUTBOX).put({ key: `${store}:${id}`, store, id, op, seq: seq() });
+      if (op === "del") result = undefined;
+    };
+    t.oncomplete = () => { resolve(result); if (syncing) onQueued(); };
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  }));
+}
+
+export const del = (store, id) => write(store, "del", id);
+
+// New records get ids unlikely to clash with ones made on another device before both synced.
+let lastId = 0;
+function newId() {
+  lastId = Math.max(lastId + 1, Date.now() * 100 + Math.floor(Math.random() * 100));
+  return lastId;
+}
 
 /** Insert or update; returns the record's id. */
 export function put(store, record) {
   const rec = { ...record };
-  if (store !== "settings" && (rec.id === undefined || rec.id === null || rec.id === "")) delete rec.id;
+  if (store !== "settings" && (rec.id === undefined || rec.id === null || rec.id === "")) rec.id = newId();
   rec.updated_at = new Date().toISOString();
   if (!rec.created_at) rec.created_at = rec.updated_at;
-  return tx(store, "readwrite", (s) => wrap(s.put(rec)));
+  return write(store, "put", rec);
+}
+
+/** For cloud.js: records as the cloud has them, written without queueing them again. */
+export const putRaw = (store, rec) => tx(store, "readwrite", (s) => wrap(s.put(rec)));
+export const delRaw = (store, id) => tx(store, "readwrite", (s) => wrap(s.delete(id)));
+export const outbox = () => tx(OUTBOX, "readonly", (s) => wrap(s.getAll()));
+/** Remove an outbox entry, unless it was replaced by a newer change while it was being sent. */
+export const outboxDone = (entry) => tx(OUTBOX, "readwrite", async (s) => {
+  const cur = await wrap(s.get(entry.key));
+  if (cur && cur.op === entry.op && cur.seq === entry.seq) s.delete(entry.key);
+});
+/** Queue every record (the first upload, or after restoring a backup). */
+export async function queueAll() {
+  const db = await open();
+  await new Promise((resolve, reject) => {
+    const t = db.transaction([...STORES, OUTBOX], "readwrite");
+    for (const name of STORES) {
+      const req = t.objectStore(name).getAllKeys();
+      req.onsuccess = () => { for (const id of req.result) t.objectStore(OUTBOX).put({ key: `${name}:${id}`, store: name, id, op: "put", seq: seq() }); };
+    }
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
+  onQueued();
 }
 
 // ---- settings (key/value) ------------------------------------------------------------
@@ -125,4 +187,5 @@ export async function importAll(text) {
     t.oncomplete = resolve;
     t.onerror = () => reject(t.error);
   });
+  if (syncing) await queueAll();
 }
