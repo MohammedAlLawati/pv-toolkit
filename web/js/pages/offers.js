@@ -46,7 +46,7 @@ export async function list(main) {
   const projects = byUpdated(all.projects).map(all.full);
   main.innerHTML = html`
 <div class="head">
-  <div><h1>Offer decks</h1><div class="muted">The techno-commercial offer as a PowerPoint: from a few inputs, or from a full project.</div></div>
+  <div><h1>Offer decks</h1><div class="muted">The techno-commercial offer as a PowerPoint: from a few inputs, or from a client's design record.</div></div>
   <div class="actions"><a class="btn primary" href="#/offers/new">New offer</a></div>
 </div>
 <div class="panel">
@@ -62,9 +62,9 @@ export async function list(main) {
   </table></div>` : html`<div class="empty">No offers yet. <a href="#/offers/new">Make one</a> from the client, equipment, price per kWp and the Helioscope reports.</div>`}
 </div>
 <div class="panel">
-  <h2>From projects</h2>
+  <h2>From design records</h2>
   ${projects.length ? html`<div class="table-scroll"><table>
-    <thead><tr><th>Project</th><th>Client</th><th class="r">DC kWp</th><th class="r">Price (OMR)</th><th>Deck</th><th>Updated</th><th></th></tr></thead>
+    <thead><tr><th>Design</th><th>Client</th><th class="r">DC kWp</th><th class="r">Price (OMR)</th><th>Deck</th><th>Updated</th><th></th></tr></thead>
     <tbody>${projects.map((p) => {
       const missing = offerMissing(p);
       return html`<tr>
@@ -75,7 +75,7 @@ export async function list(main) {
       <td class="muted small">${shortDate(p.updated_at)}</td>
       <td class="r"><button class="btn small" data-deck="${p.id}">PowerPoint</button></td></tr>`;
     })}</tbody>
-  </table></div>` : html`<div class="empty">No projects yet.</div>`}
+  </table></div>` : html`<div class="empty">No design records yet.</div>`}
 </div>`;
   const byId = new Map(projects.map((p) => [p.id, p]));
   for (const b of main.querySelectorAll("[data-deck]")) {
@@ -158,7 +158,7 @@ export async function view(main, { params }) {
     <h1>Offer deck</h1>
     <div class="muted"><a href="#/projects/${p.id}">${p.name}</a> · ${p.client?.name || "No client"}</div>
   </div>
-  <div class="actions"><a class="btn" href="#/projects/${p.id}/edit">Edit project</a><button class="btn primary" id="deck">Download PowerPoint</button></div>
+  <div class="actions"><a class="btn" href="#/projects/${p.id}/edit">Edit design</a><button class="btn primary" id="deck">Download PowerPoint</button></div>
 </div>
 ${missing.length ? html`<div class="flash warn">Still needs: ${missing.join(", ")}. Those parts of the deck are left blank. <a href="#/projects/${p.id}/edit">Fill them in</a>.</div>` : ""}
 ${figures(p, estimated ? "Monthly figures are the annual figure spread over a typical Oman year. Paste the 12 PVsyst figures on the project for the real ones." : "Monthly figures from the project.")}
@@ -178,7 +178,7 @@ ${figures(p, estimated ? "Monthly figures are the annual figure spread over a ty
       <dt>${label}</dt><dd>${pics[i] ? html`<span class="ok-text">Added</span>`
         : i === 0 && hasLayout ? html`<span class="muted">Uses the layout image</span>`
         : html`<span class="muted">None, ${without}</span>`}</dd>`)}</dl>
-    <p class="small muted"><a href="#/projects/${p.id}/edit">Add or change pictures on the project</a>.</p>
+    <p class="small muted"><a href="#/projects/${p.id}/edit">Add or change pictures on the design record</a>.</p>
   </div>
 </div>`;
 

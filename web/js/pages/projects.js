@@ -1,7 +1,7 @@
 import { capitalize, chk, download, fileUrl, fkey, float, g, go, html, int, num, readImage, sel, str, toast } from "../ui.js";
 import * as db from "../store.js";
-import { above11kw, acKw, byName, byUpdated, dcAcRatio, dcKwp, full, loadAll, projectCheck, settingsFor } from "../data.js";
-import { CONNECTION_TYPES, MOUNTING_TYPES, PREMISES_TYPES, PROJECT_STATUSES } from "../lists.js";
+import { above11kw, acKw, byName, dcAcRatio, dcKwp, full, loadAll, projectCheck, settingsFor } from "../data.js";
+import { CONNECTION_TYPES, MOUNTING_TYPES, PROJECT_STATUSES } from "../lists.js";
 import { inverterLabel, moduleLabel } from "../equipment_fields.js";
 import { DOCS, missingFields } from "../docgen/context.js";
 import { generate, generateOffer, generatePack } from "../docgen/generate.js";
@@ -11,39 +11,7 @@ import { inverterOptions, moduleOptions, partyOptions } from "../options.js";
 import { pill } from "./sizing.js";
 import { setTitle } from "../app.js";
 
-const notFound = (main) => { main.innerHTML = `<div class="panel empty">Project not found. <a href="#/projects">All projects</a></div>`; };
-
-// ---- list ------------------------------------------------------------------------------
-
-export async function list(main, { query }) {
-  setTitle("Projects");
-  const all = await loadAll();
-  const q = (query.q || "").toLowerCase(), status = query.status || "";
-  const rows = byUpdated(all.projects).map(all.full).filter((p) =>
-    (!q || [p.name, p.client?.name, p.account_no].some((v) => (v || "").toLowerCase().includes(q))) &&
-    (!status || p.status === status));
-  main.innerHTML = html`
-<div class="head">
-  <div><h1>Projects</h1><div class="muted">One project per system / account. Documents are generated from here.</div></div>
-  <div class="actions"><a class="btn primary" href="#/projects/new">New project</a></div>
-</div>
-<form class="search" id="search">
-  <input name="q" value="${query.q || ""}" placeholder="Search project, client, account no.">
-  <select name="status"><option value="">All statuses</option>${PROJECT_STATUSES.map((st) => html`<option ${sel(st === status)}>${st}</option>`)}</select>
-  <button class="btn">Filter</button>
-</form>
-<div class="panel">
-  ${rows.length ? html`<table>
-    <thead><tr><th>Project</th><th>Client</th><th>Account</th><th class="r">DC kWp</th><th class="r">AC kW</th><th>Status</th></tr></thead>
-    <tbody>${rows.map((p) => html`<tr><td><a href="#/projects/${p.id}">${p.name}</a></td><td>${p.client?.name}</td><td class="num">${p.account_no}</td>
-      <td class="r num">${num(dcKwp(p))}</td><td class="r num">${num(acKw(p))}</td><td><span class="pill">${p.status}</span></td></tr>`)}</tbody>
-  </table>` : html`<div class="empty">No projects found.</div>`}
-</div>`;
-  main.querySelector("#search").addEventListener("submit", (e) => {
-    e.preventDefault();
-    go("#/projects?" + new URLSearchParams(new FormData(e.target)).toString());
-  });
-}
+const notFound = (main) => { main.innerHTML = `<div class="panel empty">Design record not found. <a href="#/clients">All clients</a></div>`; };
 
 // ---- form ------------------------------------------------------------------------------
 
@@ -60,7 +28,8 @@ const OFFER_IMAGES = [
   ["offer_structure_file_id", "Mounting structure", "3D view or photo of the structure"],
 ];
 
-const FLOATS = ["elevation_m", "project_area_m2", "latitude", "longitude", "tilt_deg", "azimuth_deg",
+// the site's location and the premises type are defined on the client
+const FLOATS = ["elevation_m", "project_area_m2", "tilt_deg", "azimuth_deg",
                 "annual_gen_kwh", "subtotal_omr"];
 const INTS = ["module_count", "strings", "inverter_qty"];
 
@@ -82,16 +51,18 @@ export async function form(main, { params, query }) {
   const offerFiles = Object.fromEntries(await Promise.all(OFFER_IMAGES.map(async ([key]) => [key, await db.getFile(p[key])])));
   const parties = byName(all.parties);
   const v = (k) => (p[k] === null || p[k] === undefined ? "" : p[k]);
-  setTitle(isNew ? "New project" : p.name);
+  setTitle(isNew ? "New design record" : p.name);
+  const client = all.client.get(p.client_id);
+  const back = isNew ? (client ? `#/clients/${client.id}` : "#/clients") : `#/projects/${p.id}`;
 
   main.innerHTML = html`
 <div class="head">
-  <div><h1>${isNew ? "New project" : "Edit project"}</h1>
-  <div class="muted">Fill in what you have. Each document lists anything it still needs.</div></div>
+  <div><h1>${isNew ? "New design record" : "Edit design record"}</h1>
+  <div class="muted">${client ? html`<a href="#/clients/${client.id}">${client.name}</a> · ` : ""}System design, paperwork and offer details. Fill in what you have; each document lists anything it still needs.</div></div>
 </div>
 <form id="project-form">
   <div class="panel">
-    <h2>Project</h2>
+    <h2>Design record</h2>
     <div class="fields">
       <label>Client
         <select name="client_id" required><option value="">Choose…</option>
@@ -99,25 +70,23 @@ export async function form(main, { params, query }) {
         </select>
         <span class="hint">Not listed? <a href="#/clients/new">Add a client</a> first.</span>
       </label>
-      <label>Project name <input name="name" value="${v("name")}"></label>
+      <label>Name <input name="name" value="${v("name")}"></label>
       <label>Status <select name="status">${PROJECT_STATUSES.map((st) => html`<option ${sel(st === p.status)}>${st}</option>`)}</select></label>
       <label>Reference code <input name="reference_code" value="${v("reference_code")}" placeholder="Client initials"><span class="hint">Used in "HTC/&lt;code&gt;/EA/01". Blank = client's initials</span></label>
-      <label>Electricity account number <input name="account_no" value="${v("account_no")}" inputmode="numeric"><span class="hint">Keep leading zeros, e.g. 08023459</span></label>
+      <label>Meter / account number <input name="account_no" value="${v("account_no")}" inputmode="numeric" placeholder="${client?.meter_numbers?.[0] || ""}"><span class="hint">Blank = the client's first meter. Keep leading zeros</span></label>
     </div>
   </div>
 
   <div class="panel">
     <h2>Site</h2>
     <div class="fields">
-      <label>Premises type <select name="premises_type">${PREMISES_TYPES.map((t) => html`<option value="${t}" ${sel(t === p.premises_type)}>${capitalize(t)}</option>`)}</select></label>
       <label>Connection type <select name="connection_type">${Object.entries(CONNECTION_TYPES).map(([k, lab]) => html`<option value="${k}" ${sel(k === p.connection_type)}>${lab}</option>`)}</select></label>
       <label>PV mounting <select name="mounting">${Object.entries(MOUNTING_TYPES).map(([k, lab]) => html`<option value="${k}" ${sel(k === p.mounting)}>${lab}</option>`)}</select></label>
       <label>Installation type <input name="installation_type" value="${v("installation_type")}" list="install-types"></label>
       <label>Structure height (m) <input name="elevation_m" value="${g(p.elevation_m)}" inputmode="decimal"></label>
       <label>Project area (m²) <input name="project_area_m2" value="${g(p.project_area_m2)}" inputmode="decimal"></label>
-      <label>Latitude <input name="latitude" value="${g(p.latitude)}" inputmode="decimal" placeholder="23.5880"></label>
-      <label>Longitude <input name="longitude" value="${g(p.longitude)}" inputmode="decimal" placeholder="58.3829"></label>
     </div>
+    <p class="small muted spaced-top">The site's location and the client type come from the ${client ? html`<a href="#/clients/${client.id}">client page</a>` : "client page"}.</p>
     <div class="fields" id="layout-field">
       <label class="wide">Layout image <span class="hint">Roof / site layout shown in the execution agreement's Design Summary box (PNG or JPG)</span>
         <input type="file" name="layout_image" accept="image/png,image/jpeg"></label>
@@ -199,8 +168,8 @@ export async function form(main, { params, query }) {
   <div class="panel"><label>Notes <textarea name="notes">${v("notes")}</textarea></label></div>
 
   <div class="bar">
-    <a class="btn" href="${isNew ? "#/projects" : `#/projects/${p.id}`}">Cancel</a>
-    <button class="btn primary">Save project</button>
+    <a class="btn" href="${back}">Cancel</a>
+    <button class="btn primary">Save design record</button>
   </div>
 </form>`;
 
@@ -254,11 +223,10 @@ export async function form(main, { params, query }) {
     const fd = new FormData(f);
     const rec = { ...p };
     rec.client_id = fkey(fd, "client_id");
-    if (!rec.client_id || !all.client.get(rec.client_id)) { toast("Choose a client for this project.", "error"); return; }
+    if (!rec.client_id || !all.client.get(rec.client_id)) { toast("Choose a client for this design record.", "error"); return; }
     rec.name = str(fd, "name") || "Solar PV project";
     rec.status = PROJECT_STATUSES.includes(str(fd, "status")) ? str(fd, "status") : "draft";
     rec.account_no = str(fd, "account_no");
-    rec.premises_type = PREMISES_TYPES.includes(str(fd, "premises_type")) ? str(fd, "premises_type") : "residential";
     rec.connection_type = str(fd, "connection_type") in CONNECTION_TYPES ? str(fd, "connection_type") : "self";
     rec.mounting = str(fd, "mounting") in MOUNTING_TYPES ? str(fd, "mounting") : "rooftop";
     rec.installation_type = str(fd, "installation_type");
@@ -314,7 +282,7 @@ export async function form(main, { params, query }) {
     const warn = designWarnings(saved);
     const r = projectCheck(saved, all);
     if (fails(r).length) warn.push(`Design check: ${fails(r).length} hard rule(s) fail. See String & inverter sizing.`);
-    toast("Project saved." + (warn.length ? " " + warn.join(" ") : ""), warn.length ? "warn" : "ok", warn.length ? 9000 : 4000);
+    toast("Design record saved." + (warn.length ? " " + warn.join(" ") : ""), warn.length ? "warn" : "ok", warn.length ? 9000 : 4000);
     go(`#/projects/${id}`);
   });
 }
@@ -351,9 +319,9 @@ export async function view(main, { params }) {
 <div class="head">
   <div>
     <h1>${p.name}</h1>
-    <div class="muted">${p.client ? html`<a href="#/clients/${p.client.id}">${p.client.name}</a>` : "No client"} · Account ${p.account_no || "—"} · <span class="pill">${p.status}</span></div>
+    <div class="muted">Design record for ${p.client ? html`<a href="#/clients/${p.client.id}">${p.client.name}</a>` : "no client"} · Meter ${p.account_no || "—"} · <span class="pill">${p.status}</span></div>
   </div>
-  <div class="actions"><button class="btn" id="duplicate">Duplicate</button><a class="btn primary" href="#/projects/${p.id}/edit">Edit project</a></div>
+  <div class="actions"><button class="btn" id="duplicate">Duplicate</button><a class="btn primary" href="#/projects/${p.id}/edit">Edit design</a></div>
 </div>
 
 <div class="summary">
@@ -416,7 +384,7 @@ export async function view(main, { params }) {
   </div>
 </div>
 ${p.notes ? html`<div class="panel"><h2>Notes</h2><div>${p.notes}</div></div>` : ""}
-<button class="btn danger small" id="delete" data-confirm="Delete this project? This cannot be undone.">Delete project</button>`;
+<button class="btn danger small" id="delete" data-confirm="Delete this design record? This cannot be undone.">Delete design record</button>`;
 
   const busy = async (btn, fn) => {
     const label = btn.textContent;
@@ -447,14 +415,14 @@ ${p.notes ? html`<div class="panel"><h2>Notes</h2><div>${p.notes}</div></div>` :
       copies[key] = f ? await db.putFile(f.blob, f.name, { width: f.width, height: f.height, kind: "offer" }) : null;
     }
     const nid = await db.put("projects", { ...rest, ...copies, name: `${raw.name} (copy)`, status: "draft", layout_file_id: copyLayout });
-    toast("Project duplicated. Change the client or details as needed.");
+    toast("Design record duplicated. Change the client or details as needed.");
     go(`#/projects/${nid}/edit`);
   });
   main.querySelector("#delete").addEventListener("click", async () => {
     for (const key of ["layout_file_id", ...OFFER_IMAGES.map(([k]) => k)]) await db.delFile(raw[key]);
     await db.delFile(`weather_${raw.id}`);
     await db.del("projects", raw.id);
-    toast("Project deleted.");
-    go("#/projects");
+    toast("Design record deleted.");
+    go(raw.client_id ? `#/clients/${raw.client_id}` : "#/clients");
   });
 }

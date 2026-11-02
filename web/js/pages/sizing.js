@@ -73,17 +73,17 @@ export async function index(main) {
   const rows = byUpdated(all.projects).map(all.full).map((p) => [p, projectCheck(p, all)]);
   main.innerHTML = html`
 <div class="head">
-  <div><h1>String &amp; inverter sizing</h1><div class="muted">The rules check for every project. Open one to get a recommended design or change it.</div></div>
+  <div><h1>String &amp; inverter sizing</h1><div class="muted">The rules check for every design record. Open one to get a recommended design or change it.</div></div>
   <div class="actions"><a class="btn" href="#/stringing">Stringing calculator</a><a class="btn" href="#/rules">Design rules</a></div>
 </div>
 <div class="panel">
   ${rows.length ? html`<table>
-    <thead><tr><th>Project</th><th>System</th><th class="r">DC kWp</th><th class="r">AC kW</th><th class="r">DC/AC</th><th>Check</th></tr></thead>
+    <thead><tr><th>Design</th><th>System</th><th class="r">DC kWp</th><th class="r">AC kW</th><th class="r">DC/AC</th><th>Check</th></tr></thead>
     <tbody>${rows.map(([p, r]) => html`<tr>
       <td><a href="#/projects/${p.id}/sizing">${p.name}</a><div class="small muted">${p.client?.name}</div></td>
       <td class="small">${p.module ? `${p.module_count || "—"} × ${p.module.model}` : "—"}<br>${p.inverter ? `${p.inverter_qty || "—"} × ${p.inverter.model}` : ""}</td>
       <td class="r num">${num(r.dc_kwp)}</td><td class="r num">${num(r.ac_kw)}</td><td class="r num">${num(r.ratio)}</td><td>${pill(r)}</td></tr>`)}</tbody>
-  </table>` : html`<div class="empty">No projects yet. <a href="#/projects/new">Create one</a>.</div>`}
+  </table>` : html`<div class="empty">No design records yet. Start one from a <a href="#/clients">client's page</a>.</div>`}
 </div>`;
 }
 
@@ -130,7 +130,7 @@ export async function sizing(main, { params, query }) {
   main.innerHTML = html`
 <div class="head">
   <div><h1>String &amp; inverter sizing</h1><div class="muted"><a href="#/projects/${p.id}">${p.name}</a> · ${p.client?.name}</div></div>
-  <div class="actions"><a class="btn" href="#/stringing?project=${p.id}">Stringing calculator</a><a class="btn" href="#/projects/${p.id}/yield">Yield simulation</a><a class="btn" href="#/projects/${p.id}">Back to project</a></div>
+  <div class="actions"><a class="btn" href="#/stringing?project=${p.id}">Stringing calculator</a><a class="btn" href="#/projects/${p.id}/yield">Yield simulation</a><a class="btn" href="#/projects/${p.id}">Back to design record</a></div>
 </div>
 
 <div class="panel">
