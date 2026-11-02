@@ -405,3 +405,38 @@ table.str-layout tr.ck-warn td[data-c=check] { color: var(--warn); }
 .docx-preview section.docx p { position: relative; }
 /* A paragraph holding only floating drawings is still one line tall in Word. */
 .docx-preview section.docx p::after { content: "\200b"; }
+.link-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.link-choice .bar { position: static; background: none; padding: 12px 0 0; }
+@media (max-width: 760px) { .link-choice { grid-template-columns: 1fr; } }
+.trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
+.summary.six { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1100px) { .summary.six { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 600px) { .summary.six { grid-template-columns: 1fr 1fr; } }
+table.options tr { cursor: pointer; }
+table.options tr.on td { background: #fff8e8; }
+#str-design .bar { position: static; background: none; padding: 12px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.dg-group { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin-top: 12px; }
+.dg-head { margin-bottom: 6px; }
+svg.dg { width: 100%; height: auto; display: block; margin: 4px 0 6px; }
+.dg-mod { fill: #1d3a5f; stroke: #8fb3d9; stroke-width: 1; }
+.dg-wire { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+.dg-dots { font: 700 14px sans-serif; fill: var(--ink-2); text-anchor: middle; }
+.dg-txt { font: 600 12px sans-serif; fill: var(--ink); }
+.dg-off { font: italic 12px sans-serif; fill: var(--ink-3); }
+.dg-inv { fill: var(--navy); }
+.dg-invtxt { font: 700 13px sans-serif; fill: #fff; text-anchor: middle; }
+.dg-invsub { font: 12px sans-serif; fill: #c9d4e2; text-anchor: middle; }
+.dg-port { fill: var(--sun); stroke: #fff; stroke-width: 1.5; }
+.dg-port.off { fill: #9aa6b4; }
+.dg-ptxt { font: 600 11px sans-serif; fill: #fff; }
+.dg-ptxt.off { fill: #9aa6b4; }
+ol.calc { padding-left: 20px; margin: 0; line-height: 1.7; }
+ol.calc li { margin-bottom: 8px; }
+ol.calc li div { margin-left: 4px; font-variant-numeric: tabular-nums; }
+#str-more details { margin-bottom: 10px; }
+#str-more details > *:not(summary) { margin-top: 10px; }
+.dg-wire.off { stroke: #b8c1cd; stroke-dasharray: 3 3; }
+.dg-off.end { text-anchor: end; }
+.dg-bus { fill: none; stroke: var(--sun); stroke-width: 2; }
+.dg-bus.off { stroke: #5d6b7c; }
+.dg-psub { font: 10.5px sans-serif; fill: #c9d4e2; }
