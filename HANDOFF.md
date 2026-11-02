@@ -276,7 +276,7 @@ The column is added automatically on startup.
 | 1 | Login, clients, projects, NAMA forms, execution agreement | ✅ done |
 | 1.5 | Datasheet upload and reading, categories, Sungrow range, fixed checklist | ✅ done |
 | 2 | Sizing engine and rules check | ✅ done (21 Oct, see README) |
-| **3** | Yield simulation (pvlib + PVGIS TMY, losses) and a PVsyst-style PDF report, locked behind the rules check | |
+| 3 | Yield simulation (pvlib + PVGIS TMY, losses) and a PVsyst-style PDF report, locked behind the rules check | ✅ in the static app (`web/`, see README); checked against pvlib |
 | 4 | Satellite layout ("maximise area") with Esri imagery (free) or Google (needs billing); multiple POCs per site; transformer checks (C&I spare capacity, utility MV step-up) | |
 | 5 | Consumption-CSV design approach | |
 | 6 | Offer deck generator from `source_templates/EPC_Offer_Template.pptx` | ✅ static app, Offer decks page |
@@ -287,6 +287,30 @@ The column is added automatically on startup.
 - **Environmental equivalents** use the factors in HTC's "EPA Calc" spreadsheet (from the US EPA
   equivalencies calculator, homes ÷ 3), applied to the project's annual generation rather than
   the spreadsheet's kWp × 1,650.
+- **Monthly generation** comes from the AC Power (kWh) row of the "Solar Access by Month" table
+  on the shading report's scanned page 2, read with tesseract.js (vendored in `web/vendor/tesseract`,
+  English "best_int" data). The row is used only if it adds up to the annual figure (±1%) and each
+  month is within 4% of the bar chart; otherwise the months are read off the pixels of the
+  "Monthly Production" bar chart and scaled to the annual figure (about 1% out per month). The
+  form also takes the 12 figures pasted in.
+- **Sub-systems and inverter suggestions** (`suggestInverters` in `web/js/offer/quick.js`): every
+  combination of up to two library inverter models whose DC/AC ratio is 0.8–1.25 (green up to 1.2, amber above; above 1.21 the design summary slide gets a footnote), with no inverter
+  that could be dropped and stay in range; ranked by number of inverters, then ratio closest to
+  1.0, then one model before two. Mohammed asked for the 0.8–1.25 limits (first 1.2) and fewest inverters; the
+  1.0 target and the two-model cap are my choices, to confirm.
+- **3D views for slide 17** are cut from the shading report's scanned page 2 by finding the
+  panels' grey rule lines (`scannedPanels` in `web/js/offer/helioscope.js`). Check on a few more
+  reports; any picture can be replaced by hand on the form.
+- **Degradation** comes from the module's linear power warranty (Tiger Neo: 1% in year 1,
+  then 0.40% a year), applied linearly from year 2; year 1 is the simulated figure. Modules
+  without these figures in the library fall back to one yearly figure (0.65%, compounded).
+  The 620 Wp Tiger Neo's figures are assumed equal to the 66HL5 datasheet's until its own is in.
+- **Component pictures** (slide after "Component Specifications"): built-in datasheets have
+  their product picture cut out ahead of time (`python -m tools.extract_product_images` →
+  `web/data/products/`; the Jinko panel is a fixed crop of page 1 since it's drawn, not a
+  picture). A datasheet uploaded later uses the largest picture on its first page. The 620 Wp
+  module has no datasheet in the library, so it gets a caption without a picture.
+- **Structure height** isn't in the reports, so slide 17 reads "Height: m" until it's typed in.
 
 **Phase 2 scope (sizing engine):**
 - **Auto-recommend** a design: string length range, strings per MPPT, number of inverters,
@@ -379,3 +403,11 @@ Small-scale Grid-connected Solar PV" and the NAMA rules**. These were requested 
   only respect hard rules. Result: 720 W Tiger Neo = 1 string per 40 A MPPT; 620 W = 2.
 - JKM620N-78HL4-BDV is in the Jinko seed set with values from a distributor's copy of Jinko's
   610-630 W datasheet (no user datasheet yet).
+
+### Spec slides for models without template datasheet slides
+
+The template has hand-made datasheet slides for some models only (SG150CX, SG125CX-P2, JKM620).
+For every other module or inverter in the system, the deck copies the spec slide once per part of
+its library datasheet: the top of page 1 and both halves of page 2 (`datasheetParts` in
+`helioscope.js`, split at the emptiest row near the middle). A model with no datasheet in the
+library keeps the spec table instead.

@@ -5,6 +5,10 @@
 //   offer:ds_module:<model> / offer:ds_inverter:<model>  datasheet slides of one model
 //   offer:spec_module / offer:spec_inverter             generic spec tables (used otherwise)
 //   offer:needs:<image>                                  dropped when that image is missing
+//   offer:needs:components                               dropped when no module or inverter is chosen
+//   offer:needs:subsystems                               dropped unless there are several sub-systems or inverter models
+// Logos (p:pic with descr "logo:<key>") are moved to a corner of image <key>.
+// Schedule tables (a W1, W2, ... header row) get one row per activity, shaded in its weeks.
 // Charts: chart1 monthly energy (MWh), chart2 25-year energy + loss, chart3 cumulative cash flow.
 import { replacePlaceholders } from "../docgen/render.js";
 
@@ -94,6 +98,42 @@ class Pptx {
     this.remove(s.part); this.remove(relsPath(s.part)); dropOverride(s.part);
   }
 
+  /** A copy of slide `s` (without its notes), placed right after slide `after` (default `s`). */
+  async cloneSlide(s, after = s) {
+    const ser = new XMLSerializer();
+    const text = async (name) => (this.trees.has(name) ? ser.serializeToString(this.trees.get(name)) : this.zip.file(name)?.async("string"));
+    let n = 1;
+    while (this.zip.file(`ppt/slides/slide${n}.xml`)) n++;
+    const part = `ppt/slides/slide${n}.xml`;
+    this.zip.file(part, await text(s.part));
+    const rels = new DOMParser().parseFromString(await text(relsPath(s.part)), "application/xml");
+    byTag(rels, "rel", "Relationship").filter((r) => /notesSlide$/.test(r.getAttribute("Type"))).forEach((r) => r.parentNode.removeChild(r));
+    this.trees.set(relsPath(part), rels);
+
+    const ct = await this.tree("[Content_Types].xml");
+    const ov = ct.createElementNS(NS.ct, "Override");
+    ov.setAttribute("PartName", "/" + part);
+    ov.setAttribute("ContentType", "application/vnd.openxmlformats-officedocument.presentationml.slide+xml");
+    ct.documentElement.appendChild(ov);
+
+    const presRels = await this.rels("ppt/presentation.xml");
+    const relIds = new Set(byTag(presRels, "rel", "Relationship").map((r) => r.getAttribute("Id")));
+    let k = 1;
+    while (relIds.has(`rIdS${k}`)) k++;
+    const rel = presRels.createElementNS(NS.rel, "Relationship");
+    rel.setAttribute("Id", `rIdS${k}`);
+    rel.setAttribute("Type", s.rel.getAttribute("Type"));
+    rel.setAttribute("Target", `slides/slide${n}.xml`);
+    presRels.documentElement.appendChild(rel);
+
+    const pres = await this.tree("ppt/presentation.xml");
+    const sldId = pres.createElementNS(NS.p, "p:sldId");
+    sldId.setAttribute("id", String(Math.max(255, ...byTag(pres, "p", "sldId").map((e) => Number(e.getAttribute("id")))) + 1));
+    sldId.setAttributeNS(NS.r, "r:id", `rIdS${k}`);
+    after.sldId.parentNode.insertBefore(sldId, after.sldId.nextSibling);
+    return { sldId, rel, part };
+  }
+
   async bytes() {
     const ser = new XMLSerializer();
     for (const [name, doc] of this.trees) {
@@ -146,46 +186,214 @@ function setSeries(doc, index, cats, vals) {
 
 // ---- images ------------------------------------------------------------------------------
 
+const LOGO_MARGIN = 64008; // 0.07 in
+
 async function fillImages(deck, part, root, images) {
+  const placed = {};
   for (const pic of byTag(root, "p", "pic")) {
     const pr = byTag(pic, "p", "cNvPr")[0];
     const tag = pr?.getAttribute("descr") || "";
     if (!tag.startsWith("img:")) continue;
-    const img = images[tag.slice(4)];
+    const key = tag.slice(4);
+    const img = images[key];
     if (!img) { pic.parentNode.removeChild(pic); continue; }
     const rid = await deck.addImage(part, img.bytes, img.ext);
     byTag(pic, "a", "blip")[0].setAttributeNS(NS.r, "r:embed", rid);
-    const off = byTag(pic, "a", "off")[0], ext = byTag(pic, "a", "ext")[0];
+    const xfrm = byTag(pic, "a", "xfrm")[0], off = child(xfrm, "a", "off"), ext = child(xfrm, "a", "ext");
     const bx = Number(off.getAttribute("x")), by = Number(off.getAttribute("y"));
     const bw = Number(ext.getAttribute("cx")), bh = Number(ext.getAttribute("cy"));
     const scale = Math.min(bw / img.width, bh / img.height);
     const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-    off.setAttribute("x", String(bx + Math.floor((bw - w) / 2)));
-    off.setAttribute("y", String(by + Math.floor((bh - h) / 2)));
+    const x = bx + Math.floor((bw - w) / 2), y = by + Math.floor((bh - h) / 2);
+    off.setAttribute("x", String(x));
+    off.setAttribute("y", String(y));
     ext.setAttribute("cx", String(w));
     ext.setAttribute("cy", String(h));
     pr.setAttribute("descr", "");
+    placed[key] = { x, y, w, h, corner: img.logoCorner || "tl" };
+  }
+  // logos tagged "logo:<key>" go in the chosen corner of that picture, or away with it
+  for (const pic of byTag(root, "p", "pic")) {
+    const pr = byTag(pic, "p", "cNvPr")[0];
+    const tag = pr?.getAttribute("descr") || "";
+    if (!tag.startsWith("logo:")) continue;
+    const box = placed[tag.slice(5)];
+    if (!box) { pic.parentNode.removeChild(pic); continue; }
+    const xfrm = byTag(pic, "a", "xfrm")[0], off = child(xfrm, "a", "off"), ext = child(xfrm, "a", "ext");
+    let lw = Number(ext.getAttribute("cx")), lh = Number(ext.getAttribute("cy"));
+    const fit = Math.min(1, (box.w * 0.3) / lw); // never more than 30% of the picture's width
+    lw = Math.round(lw * fit); lh = Math.round(lh * fit);
+    const right = box.corner[1] === "r", bottom = box.corner[0] === "b";
+    off.setAttribute("x", String(right ? box.x + box.w - lw - LOGO_MARGIN : box.x + LOGO_MARGIN));
+    off.setAttribute("y", String(bottom ? box.y + box.h - lh - LOGO_MARGIN : box.y + LOGO_MARGIN));
+    ext.setAttribute("cx", String(lw));
+    ext.setAttribute("cy", String(lh));
+    pr.setAttribute("descr", "");
+  }
+}
+
+// ---- components ----------------------------------------------------------------------------
+
+const COMP_LEFT = 457200, COMP_WIDTH = 8229600;  // the components slide's columns span 0.5 to 9.5 in
+
+/**
+ * The components slide: the first `n` picture slots ("img:compK") and captions ("Component
+ * caption K") are spread evenly across the width; the rest are removed.
+ */
+export function layoutComponents(root, n) {
+  const shapes = [...byTag(root, "p", "pic"), ...byTag(root, "p", "sp")];
+  const slots = [];
+  for (const shp of shapes) {
+    const pr = byTag(shp, "p", "cNvPr")[0];
+    const m = (pr?.getAttribute("descr") || "").match(/^img:comp(\d)$/) || (pr?.getAttribute("name") || "").match(/^Component caption (\d)$/);
+    if (m) slots.push({ shp, k: Number(m[1]) });
+  }
+  if (!slots.length) return;
+  const col = COMP_WIDTH / Math.max(1, n);
+  for (const { shp, k } of slots) {
+    if (k > n) { shp.parentNode.removeChild(shp); continue; }
+    const xfrm = byTag(shp, "a", "xfrm")[0], off = child(xfrm, "a", "off"), ext = child(xfrm, "a", "ext");
+    const w = Number(ext.getAttribute("cx"));
+    off.setAttribute("x", String(Math.round(COMP_LEFT + (k - 0.5) * col - w / 2)));
+  }
+}
+
+// ---- schedule ----------------------------------------------------------------------------
+
+const cellText = (tc) => byTag(tc, "a", "t").map((t) => t.textContent).join("").trim();
+
+/** Replace a table cell's text, keeping the first run's formatting. */
+function setCellText(tc, text) {
+  const paras = byTag(tc, "a", "p");
+  paras.slice(1).forEach((p) => p.parentNode.removeChild(p));
+  const runs = byTag(paras[0], "a", "r");
+  runs.slice(1).forEach((r) => r.parentNode.removeChild(r));
+  if (runs[0]) byTag(runs[0], "a", "t")[0].textContent = text;
+}
+
+/** The tcPr's own fill (its last solidFill / noFill child, not a border's). */
+function setCellFill(doc, tc, filled, fillTemplate) {
+  const pr = child(tc, "a", "tcPr");
+  if (!pr) return;
+  const old = Array.from(pr.childNodes).filter((n) => n.namespaceURI === NS.a && (n.localName === "solidFill" || n.localName === "noFill")).pop();
+  const next = filled ? fillTemplate.cloneNode(true) : doc.createElementNS(NS.a, "a:noFill");
+  if (old) pr.replaceChild(next, old); else pr.appendChild(next);
+}
+
+const SCHEDULE_BOTTOM = 4650000; // EMU: schedule rows stay above the slide's footer
+
+/**
+ * Fill the "Execution Schedule" tables: the second header row names the weeks (W1, W2, ...),
+ * and the activity rows (first cell a number) are rebuilt from `schedule` = [{ name, start, weeks }]:
+ * one row per activity that runs in this table's weeks, numbered in schedule order, shaded in
+ * its weeks. Rows get shorter (and their text smaller) when more activities have to fit.
+ * Returns the last week shaded on this slide (0 when the slide has no schedule).
+ */
+export function fillSchedule(root, schedule) {
+  let used = 0;
+  for (const tbl of byTag(root, "a", "tbl")) {
+    const rows = byTag(tbl, "a", "tr");
+    const weekRow = rows.find((r) => byTag(r, "a", "tc").some((tc) => /^W\d+$/.test(cellText(tc))));
+    if (!weekRow) continue;
+    const weeks = byTag(weekRow, "a", "tc").map((tc) => { const m = cellText(tc).match(/^W(\d+)$/); return m ? Number(m[1]) : null; });
+    const shown = weeks.filter((w) => w !== null), lo = Math.min(...shown), hi = Math.max(...shown);
+    const data = rows.slice(rows.indexOf(weekRow) + 1).filter((r) => /^\d+$/.test(cellText(byTag(r, "a", "tc")[0])));
+    const ownFill = (tc) => { const pr = child(tc, "a", "tcPr"); return pr && Array.from(pr.childNodes).filter((n) => n.namespaceURI === NS.a && (n.localName === "solidFill" || n.localName === "noFill")).pop(); };
+    const fillTemplate = data.flatMap((r) => byTag(r, "a", "tc").map(ownFill)).find((f) => f?.localName === "solidFill");
+    if (!data.length || !fillTemplate) continue;
+
+    const proto = data[0];
+    const protoH = Math.round(data.reduce((t, r) => t + Number(r.getAttribute("h")), 0) / data.length);
+    const acts = schedule.map((a, i) => ({ ...a, n: i + 1 }))
+      .filter((a) => a.weeks > 0 && a.start <= hi && a.start + a.weeks - 1 >= lo);
+    const frame = tbl.parentNode.parentNode.parentNode;
+    const xfrm = child(frame, "p", "xfrm");
+    const top = Number(child(xfrm, "a", "off").getAttribute("y"));
+    const headH = rows.slice(0, rows.indexOf(weekRow) + 1).reduce((t, r) => t + Number(r.getAttribute("h")), 0);
+    // room down to the footer, or to the first shape below the table's header (the template's note)
+    const x0 = Number(child(xfrm, "a", "off").getAttribute("x")), x1 = x0 + Number(child(xfrm, "a", "ext").getAttribute("cx"));
+    let bottom = SCHEDULE_BOTTOM;
+    for (const el of Array.from(frame.parentNode.childNodes)) {
+      if (el === frame || el.nodeType !== 1) continue;
+      const off = byTag(el, "a", "off")[0], ext = byTag(el, "a", "ext").find((e) => e.hasAttribute("cx"));
+      if (!off || !ext) continue;
+      const y = Number(off.getAttribute("y")), x = Number(off.getAttribute("x")), w = Number(ext.getAttribute("cx"));
+      if (y > top + headH && x < x1 && x + w > x0) bottom = Math.min(bottom, y);
+    }
+    const h = Math.min(protoH, Math.floor((bottom - top - headH) / Math.max(1, acts.length)));
+    const scale = Math.max(0.7, h / protoH);
+    for (const r of data) r.parentNode.removeChild(r);
+
+    for (const a of acts) {
+      const tr = proto.cloneNode(true);
+      tr.setAttribute("h", String(h));
+      const ext = child(tr, "a", "extLst");
+      if (ext) tr.removeChild(ext); // the template's row id must stay unique
+      const tcs = byTag(tr, "a", "tc");
+      setCellText(tcs[0], String(a.n));
+      setCellText(tcs[1], a.name || "");
+      if (scale < 0.95) {
+        for (const rpr of [...byTag(tr, "a", "rPr"), ...byTag(tr, "a", "endParaRPr")]) {
+          const sz = Number(rpr.getAttribute("sz"));
+          if (sz) rpr.setAttribute("sz", String(Math.round((sz * scale) / 50) * 50));
+        }
+      }
+      tcs.forEach((tc, i) => {
+        const w = weeks[i];
+        if (w === null) return;
+        const on = w >= a.start && w < a.start + a.weeks;
+        setCellFill(root, tc, on, fillTemplate);
+        if (on) used = Math.max(used, w);
+      });
+      tbl.appendChild(tr);
+    }
+    child(xfrm, "a", "ext").setAttribute("cy", String(byTag(tbl, "a", "tr").reduce((t, r) => t + Number(r.getAttribute("h")), 0)));
+  }
+  return used;
+}
+
+/**
+ * The sub-system table: the row holding {{SS_Name}} is copied once per sub-system
+ * ([{ name, mounting, module, modules, dc, inverters, ac, ratio }], already formatted) and then removed.
+ */
+export function fillSubsystems(root, rows) {
+  for (const tr of byTag(root, "a", "tr")) {
+    if (!cellText(byTag(tr, "a", "tc")[0]).includes("{{SS_Name}}")) continue;
+    for (const r of rows) {
+      const copy = tr.cloneNode(true);
+      const tcs = byTag(copy, "a", "tc");
+      [r.name, r.mounting, r.module, r.modules, r.dc, r.inverters, r.ac, r.ratio].forEach((text, i) => tcs[i] && setCellText(tcs[i], text ?? ""));
+      tr.parentNode.insertBefore(copy, tr);
+    }
+    tr.parentNode.removeChild(tr);
+    return;
   }
 }
 
 // ---- the deck ----------------------------------------------------------------------------
 
 /** Which slides to keep, from their tags and the project's equipment and images. */
-export function keepSlide(tag, { moduleModel, inverterModel, images, dsModules, dsInverters }) {
+export function keepSlide(tag, { moduleModel, inverterModel, moduleModels, inverterModels, images, flags, dsModules, dsInverters }) {
   const [, kind, arg] = (tag || "").split(":");
   if (!tag.startsWith("offer:")) return true;
-  if (kind === "ds_module") return arg === moduleModel;
-  if (kind === "ds_inverter") return arg === inverterModel;
+  // a system with several models keeps the datasheet slides of each
+  if (kind === "ds_module") return arg === moduleModel || !!moduleModels?.includes(arg);
+  if (kind === "ds_inverter") return arg === inverterModel || !!inverterModels?.includes(arg);
   if (kind === "spec_module") return !dsModules.has(moduleModel);
   if (kind === "spec_inverter") return !dsInverters.has(inverterModel);
-  if (kind === "needs") return !!images[arg];
+  if (kind === "needs") return !!images[arg] || !!flags?.[arg];
   return true;
 }
 
 /**
  * @param template ArrayBuffer of offer_deck.pptx
  * @param input { values, months (12 kWh or null), flow (from cashFlow or null),
- *                moduleModel, inverterModel, images: { site, shadow, structure } }
+ *                moduleModel, inverterModel, moduleModels, inverterModels (all models used), schedule ([{ name, start, weeks }] or null),
+ *                subsystems ([{ name, mounting, module, modules, dc, inverters, ac, ratio }] as text, or none),
+ *                components (how many component pictures: images comp1..compN),
+ *                specSheets ([{ kind: "module"|"inverter", model, values, pages: async () => [image] }]: the spec
+ *                  slides of each model without template datasheet slides; without it one table slide is kept),
+ *                images: { site, shadow, structure, structure2, client_logo, comp1.. }, each { bytes, ext, width, height, logoCorner? } }
  * @returns { bytes, missing }
  */
 export async function renderPptx(template, input) {
@@ -201,12 +409,45 @@ export async function renderPptx(template, input) {
   }
   const dsModules = new Set(tags.filter((t) => t.startsWith("offer:ds_module:")).map((t) => t.split(":")[2]));
   const dsInverters = new Set(tags.filter((t) => t.startsWith("offer:ds_inverter:")).map((t) => t.split(":")[2]));
-  const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, images, dsModules, dsInverters };
+  const subsystems = input.subsystems || [];
+  const ctx = { moduleModel: input.moduleModel, inverterModel: input.inverterModel, moduleModels: input.moduleModels,
+                inverterModels: input.inverterModels, images, dsModules, dsInverters,
+                flags: { subsystems: subsystems.length > 0, components: (input.components || 0) > 0 } };
 
+  const lastWeek = input.schedule?.length ? Math.max(...input.schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0))) : null;
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
+    const spec = /^offer:spec_(module|inverter)$/.exec(tags[i]);
+    if (spec && input.specSheets) {
+      // one slide per model without its own datasheet slides: a picture of each part of its
+      // datasheet's pages, or the spec table when the datasheet isn't in the library
+      const ds = spec[1] === "module" ? dsModules : dsInverters;
+      let after = s;
+      for (const sheet of input.specSheets.filter((x) => x.kind === spec[1] && !ds.has(x.model))) {
+        let pages = [];
+        try { pages = (await sheet.pages?.()) || []; } catch { pages = []; }
+        for (const page of pages.length ? pages : [null]) {
+          const c = await deck.cloneSlide(s, after);
+          after = c;
+          const root = await deck.tree(c.part);
+          if (page) byTag(root, "p", "graphicFrame").filter((g) => byTag(g, "a", "tbl").length).forEach((g) => g.parentNode.removeChild(g));
+          replacePlaceholders(root, { ...input.values, ...sheet.values }, missing, "a");
+          await fillImages(deck, c.part, root, { ...images, sheet: page });
+        }
+      }
+      await deck.dropSlide(s);
+      continue;
+    }
     if (!keepSlide(tags[i], ctx)) { await deck.dropSlide(s); continue; }
     const root = await deck.tree(s.part);
+    if (input.schedule?.length && byTag(root, "a", "tbl").length) {
+      // a schedule slide whose weeks all come after the last activity is dropped
+      const firstWeek = Math.min(...byTag(root, "a", "t").map((t) => t.textContent.match(/^W(\d+)$/)).filter(Boolean).map((m) => Number(m[1])));
+      if (Number.isFinite(firstWeek) && firstWeek > lastWeek) { await deck.dropSlide(s); continue; }
+      fillSchedule(root, input.schedule);
+    }
+    if (subsystems.length) fillSubsystems(root, subsystems);
+    layoutComponents(root, input.components || 0);
     replacePlaceholders(root, input.values, missing, "a");
     await fillImages(deck, s.part, root, images);
   }

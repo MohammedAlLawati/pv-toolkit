@@ -8,7 +8,13 @@ The browser fills the result (web/js/offer/). This script:
 - tags slides in p:cSld/@name ("offer:..."): datasheet slides for one module / inverter
   model, the shadow slide (dropped without a shadow image) and two new spec slides
   (a table of the library values, used when the template has no datasheet slides);
-- adds image slots (p:pic with descr "img:<key>") for the site, shadow and structure pictures;
+- adds image slots (p:pic with descr "img:<key>") for the site, shadow and two structure (3D view)
+  pictures, and tags the HTC logos that sit on them (descr "logo:<key>");
+- puts "Client: {{Name}}" and a client logo slot on the cover, and adds a components slide (pictures
+  of the module and inverter models used, tagged "offer:needs:components") after slide 18;
+- adds a sub-system breakdown slide after the design summary (tagged "offer:needs:subsystems": mounting,
+  modules, inverter combination and DC/AC ratio of each sub-system);
+- turns the shadow slide's three paragraphs into {{ShadeP1..3}} (they change when shading is high);
 - replaces the CO2 picture with text and the cash-flow picture with a chart;
 - unlinks the charts from the original Excel file (the path named another client);
 - re-encodes large photos so the template stays small.
@@ -127,6 +133,21 @@ def set_para(p, text: str) -> None:
         p.remove(br)
 
 
+def plain_value(root, label: str) -> None:
+    """Split a bold run "Label: value" into a bold label and a plain value."""
+    hits = [t for t in root.iter(q("a:t")) if t.text and t.text.startswith(label) and t.text != label]
+    assert hits, f"no run starting {label!r}"
+    t = hits[0]
+    r = t.getparent()
+    value = copy.deepcopy(r)
+    value.find(q("a:t")).text = t.text[len(label):]
+    rpr = value.find(q("a:rPr"))
+    if rpr is not None and "b" in rpr.attrib:
+        del rpr.attrib["b"]
+    t.text = label
+    r.addnext(value)
+
+
 def para_with(root, needle: str):
     hits = [p for p in root.iter(q("a:p")) if needle in runs_text(p)]
     assert hits, f"no paragraph with {needle!r}"
@@ -170,6 +191,16 @@ def shape_named(slide, name: str):
 
 def tag_slide(slide, tag: str) -> None:
     slide.find(q("p:cSld")).set("name", tag)
+
+
+def tag_logo(slide, name: str, key: str) -> None:
+    """Mark a logo picture to sit in a corner of image slot `key` (moved there by the browser,
+    dropped with the image), and bring it in front of the slot."""
+    pic = shape_named(slide, name)
+    pic.find(".//" + q("p:cNvPr")).set("descr", f"logo:{key}")
+    tree = pic.getparent()
+    tree.remove(pic)
+    tree.append(pic)
 
 
 def max_shape_id(slide) -> int:
@@ -236,6 +267,20 @@ def textbox(slide, x, y, w, h, paras: list[str], size=14, color="2E7D32") -> Non
     slide.find(q("p:cSld")).find(q("p:spTree")).append(sp)
 
 
+def footnote(slide, x, y, w, h, text: str, size=9, color="595959") -> None:
+    """A small italic note with no bullet, centred."""
+    sp_xml = f"""<p:sp xmlns:p="{NS['p']}" xmlns:a="{NS['a']}">
+  <p:nvSpPr><p:cNvPr id="{max_shape_id(slide) + 1}" name="Offer footnote"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x="{emu(x)}" y="{emu(y)}"/><a:ext cx="{emu(w)}" cy="{emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>
+  <p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/>
+    <a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="{size * 100}" i="1" dirty="0"><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></a:rPr><a:t></a:t></a:r></a:p>
+  </p:txBody>
+</p:sp>"""
+    sp = etree.fromstring(sp_xml)
+    sp.find(".//" + q("a:t")).text = text
+    slide.find(q("p:cSld")).find(q("p:spTree")).append(sp)
+
+
 def remove_shape(pkg: Pkg, n: int, name: str):
     """Remove a shape; returns its (x, y, cx, cy) in EMU."""
     shp = shape_named(pkg.slide(n), name)
@@ -244,7 +289,15 @@ def remove_shape(pkg: Pkg, n: int, name: str):
         xfrm = shp.find(q("p:xfrm"))
     off, ext = xfrm.find(q("a:off")), xfrm.find(q("a:ext"))
     box = tuple(int(v) for v in (off.get("x"), off.get("y"), ext.get("cx"), ext.get("cy")))
+    blip = shp.find(".//" + q("a:blip"))
     shp.getparent().remove(shp)
+    if blip is not None:  # drop the picture's relationship unless another shape still uses it
+        rid = blip.get(q("r:embed"))
+        if not any(b.get(q("r:embed")) == rid for b in pkg.slide(n).iter(q("a:blip"))):
+            rels = pkg.rels(f"ppt/slides/slide{n}.xml")
+            for r in list(rels):
+                if r.get("Id") == rid:
+                    rels.remove(r)
     return box
 
 
@@ -299,11 +352,109 @@ def spec_slide(pkg: Pkg, n: int, table_src, title: str, rows: list[tuple[str, st
         cell_set(tcs[1], value, rpr)
         tbl.append(tr)
     slide.find(q("p:cSld")).find(q("p:spTree")).append(gf)
+    # or, when the model's datasheet is in the library, a part of one of its pages (the browser
+    # copies the slide per page and keeps either the picture or the table)
+    add_image_slot(pkg, n, "sheet", 0.35, y / EMU, 9.3, cy / EMU)
+
+
+# The sub-system table: [header, width (in), placeholder]. The browser copies the {{SS_*}} row
+# once per sub-system and drops the slide when the system isn't split.
+SUBSYSTEM_COLS = [("Sub-system", 1.25, "{{SS_Name}}"), ("Installation", 1.6, "{{SS_Mounting}}"),
+                  ("PV module", 1.25, "{{SS_Module}}"), ("Panels", 0.75, "{{SS_Modules}}"),
+                  ("DC (kWp)", 0.8, "{{SS_DC}}"), ("Inverters", 1.65, "{{SS_Inverters}}"),
+                  ("AC (kW)", 0.75, "{{SS_AC}}"), ("DC/AC", 0.65, "{{SS_Ratio}}")]
+SUBSYSTEM_TOTALS = ["Total", "", "", "{{SS_TotModules}}", "{{SS_TotDC}}", "{{SS_TotInverters}}", "{{SS_TotAC}}",
+                    "{{SS_TotRatio}}"]
+
+
+def subsystem_slide(pkg: Pkg, n: int) -> None:
+    """Turn a copy of the design summary slide into the sub-system breakdown table."""
+    slide = pkg.slide(n)
+    tag_slide(slide, "offer:needs:subsystems")
+    set_para(para_with(slide, "Design Summary"), "System Breakdown")
+    tbl = tables(slide)[0]
+    rows = tbl.findall(q("a:tr"))
+    head_tc, label_tc, value_tc = rows[0].findall(q("a:tc"))[0], *rows[1].findall(q("a:tc"))[:2]
+    rpr = first_rpr(value_tc)
+    grid = tbl.find(q("a:tblGrid"))
+    for gc in list(grid):
+        grid.remove(gc)
+    for _, w, _ in SUBSYSTEM_COLS:
+        etree.SubElement(grid, q("a:gridCol"), w=emu(w))
+    for tr in rows:
+        tbl.remove(tr)
+
+    def row(h, texts, first, rest):
+        tr = etree.SubElement(tbl, q("a:tr"), h=str(h))
+        for i, text in enumerate(texts):
+            tc = copy.deepcopy(first if i == 0 else rest)
+            for attr in ("gridSpan", "hMerge"):
+                tc.attrib.pop(attr, None)
+            cell_set(tc, text, rpr)
+            tr.append(tc)
+        return tr
+
+    row(rows[0].get("h"), [c[0] for c in SUBSYSTEM_COLS], head_tc, head_tc)
+    row(417935, [c[2] for c in SUBSYSTEM_COLS], label_tc, value_tc)
+    row(417935, SUBSYSTEM_TOTALS, label_tc, value_tc)
+    xfrm = tbl.getparent().getparent().getparent().find(q("p:xfrm"))
+    xfrm.find(q("a:off")).set("x", emu(0.5))
+    xfrm.find(q("a:ext")).set("cx", str(sum(int(emu(w)) for _, w, _ in SUBSYSTEM_COLS)))
+    xfrm.find(q("a:ext")).set("cy", str(sum(int(tr.get("h")) for tr in tbl.findall(q("a:tr")))))
+
+
+# The components slide: a picture and caption per module / inverter model used, in up to
+# COMPONENT_SLOTS columns (the browser spreads the ones in use across the width).
+COMPONENT_SLOTS = 4
+
+
+def caption(slide, x, y, w, h, name: str, lines) -> None:
+    """A centred text box: a bold first line, then smaller green lines."""
+    sp = etree.fromstring(f"""<p:sp xmlns:p="{NS['p']}" xmlns:a="{NS['a']}">
+  <p:nvSpPr><p:cNvPr id="{max_shape_id(slide) + 1}" name="{name}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x="{emu(x)}" y="{emu(y)}"/><a:ext cx="{emu(w)}" cy="{emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>
+  <p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/></p:txBody>
+</p:sp>""")
+    body = sp.find(q("p:txBody"))
+    for i, text in enumerate(lines):
+        para = etree.SubElement(body, q("a:p"))
+        etree.SubElement(para, q("a:pPr"), algn="ctr")
+        r = etree.SubElement(para, q("a:r"))
+        rpr = etree.SubElement(r, q("a:rPr"), lang="en-US", sz="1100" if i == 0 else "1000", b="1" if i == 0 else "0", dirty="0")
+        fill = etree.SubElement(rpr, q("a:solidFill"))
+        etree.SubElement(fill, q("a:srgbClr"), val="404040" if i == 0 else "2E7D32")
+        etree.SubElement(r, q("a:t")).text = text
+    slide.find(q("p:cSld")).find(q("p:spTree")).append(sp)
+
+
+def components_slide(pkg: Pkg, n: int) -> None:
+    """A copy of the first datasheet slide, emptied, with a picture slot and caption per component."""
+    clone_slide(pkg, 19, n, after_slide=18)
+    slide = pkg.slide(n)
+    tag_slide(slide, "offer:needs:components")
+    for name in ("Picture 17", "Picture 2"):
+        remove_shape(pkg, n, name)
+    set_para(para_with(slide, "PV Module Specification from Manufacturer"), "Selected Components for the Proposed System")
+    col = 9.0 / COMPONENT_SLOTS
+    for k in range(1, COMPONENT_SLOTS + 1):
+        x = 0.5 + (k - 1) * col
+        add_image_slot(pkg, n, f"comp{k}", x + 0.15, 1.25, col - 0.3, 2.65)
+        caption(slide, x + 0.05, 4.0, col - 0.1, 0.85, f"Component caption {k}", [f"{{{{Comp{k}Name}}}}", f"{{{{Comp{k}Role}}}}"])
 
 
 def copy_chart(pkg: Pkg, src: int, new: int) -> None:
-    for d, f in (("ppt/charts", f"chart{src}.xml"), ("ppt/charts/_rels", f"chart{src}.xml.rels")):
-        pkg.put(f"{d}/{f.replace(str(src), str(new), 1)}", pkg.parts[f"{d}/{f}"])
+    """Copy a chart with its own style and colour parts (PowerPoint expects one set per chart)."""
+    pkg.put(f"ppt/charts/chart{new}.xml", pkg.parts[f"ppt/charts/chart{src}.xml"])
+    rels = etree.fromstring(pkg.parts[f"ppt/charts/_rels/chart{src}.xml.rels"])
+    for r in rels:
+        m = re.match(r"(style|colors)\d+\.xml$", r.get("Target"))
+        if m:
+            target = f"{m.group(1)}{new}.xml"
+            pkg.put(f"ppt/charts/{target}", pkg.parts["ppt/charts/" + r.get("Target")])
+            pkg.add_override(f"ppt/charts/{target}", "application/vnd.ms-office.chartstyle+xml" if m.group(1) == "style"
+                             else "application/vnd.ms-office.chartcolorstyle+xml")
+            r.set("Target", target)
+    pkg.put(f"ppt/charts/_rels/chart{new}.xml.rels", etree.tostring(rels, xml_declaration=True, encoding="UTF-8", standalone=True))
     pkg.add_override(f"ppt/charts/chart{new}.xml", "application/vnd.openxmlformats-officedocument.drawingml.chart+xml")
 
 
@@ -390,15 +541,14 @@ INVERTER_SPECS = [("Model", "{{InverterModel}}"), ("Rated AC output power", "{{I
 def build() -> None:
     pkg = Pkg(SRC)
 
-    # 1 cover: capacity and client under the title
+    # 1 cover: the client under the title, and the client's logo above it
     s = pkg.slide(1)
     p = para_with(s, "EPC of Solar PV System")
-    for text in ("{{Name}}", "{{DCCapacity}} kWp"):
-        np_ = copy.deepcopy(p)
-        set_para(np_, text)
-        np_.find(q("a:r")).find(q("a:rPr")).set("cap", "none")
-        p.addnext(np_)
-        p = np_
+    np_ = copy.deepcopy(p)
+    set_para(np_, "Client: {{Name}}")
+    np_.find(q("a:r")).find(q("a:rPr")).set("cap", "none")
+    p.addnext(np_)
+    add_image_slot(pkg, 1, "client_logo", 3.8, 0.95, 2.4, 1.05)
     # 2 contents: offer reference
     set_run(pkg.slide(2), "HTC//TCO/01", "HTC/{{Abbreviation}}/TCO/01")
     # 12 schematic
@@ -408,18 +558,45 @@ def build() -> None:
     add_image_slot(pkg, 14, "site", 0.4, 1.0, 5.4, 3.95)
     add_image_slot(pkg, 16, "shadow", 0.4, 1.1, 5.6, 3.95)
     tag_slide(pkg.slide(16), "offer:needs:shadow")
-    add_image_slot(pkg, 17, "structure", 1.5, 1.0, 7.0, 3.3)
+    s16 = pkg.slide(16)
+    for key, needle in (("ShadeP1", "As demonstrated in the simulation"), ("ShadeP2", "This is visually confirmed"),
+                        ("ShadeP3", "The uniform shading analysis")):
+        set_para(para_with(s16, needle), "{{%s}}" % key)
+    tag_logo(s16, "Picture 1", "shadow")
+    # 17: the two 3D angle views from the shading report, side by side
+    add_image_slot(pkg, 17, "structure", 0.45, 1.0, 4.4, 3.3)
+    add_image_slot(pkg, 17, "structure2", 5.15, 1.0, 4.4, 3.3)
     s17 = pkg.slide(17)
-    set_run(s17, "Installation Type:", "Installation Type: {{InstallationType}}")
-    set_run(s17, "Tilt / Orientation:", "Tilt / Orientation: {{Tilt}}° / {{Orientation}}")
-    set_run(s17, "Height: m", "Height: {{Elevation}} m")
+    tag_logo(s17, "Picture 10", "structure")
+    tag_logo(s17, "Picture 1", "structure2")
+    # one figure per sub-system when they differ ("5° / 10°"), see mountingLines in values.js
+    set_run(s17, "Installation Type:", "Installation Type: {{MountTypes}}")
+    tilt = para_with(s17, "Tilt / Orientation:")
+    tilt.addnext(copy.deepcopy(tilt))
+    set_run(s17, "Tilt / Orientation:", "{{TiltLabel}}: {{Tilts}}")
+    set_run(s17, "Tilt / Orientation:", "{{AzimuthLabel}}: {{Azimuths}}")
+    set_run(s17, "Height: m", "Height: {{Heights}}")
+    # each line its own bullet (wind load sat after a line break), labels bold and figures plain
+    inst = para_with(s17, "Installation Type:")
+    br = inst.find(q("a:br"))
+    if br is not None:
+        wind = copy.deepcopy(inst)
+        for el in list(wind):
+            if el.tag != q("a:pPr"):
+                wind.remove(el)
+        for el in list(inst)[list(inst).index(br) + 1:]:
+            wind.append(el)
+        inst.remove(br)
+        inst.addnext(wind)
+    for label in ("Installation Type: ", "{{TiltLabel}}: ", "{{AzimuthLabel}}: ", "Height: "):
+        plain_value(s17, label)
     # 15 design summary
     tbl15 = tables(pkg.slide(15))[0]
     rows = tbl15.findall(q("a:tr"))
     rpr = first_rpr(rows[1].findall(q("a:tc"))[1])
     for i, text in enumerate(["{{InstallationType}}", "{{PanelNo}} modules", "{{PanelType}}", "{{PanelCap}}",
                               "{{ModuleMake}}", "{{DCCapacity}}", "{{InverterMake}}", "{{ACCapacity}}",
-                              "{{DCACRatioPct}} %"], start=1):
+                              "{{DCACRatioPct}} %{{DCACMark}}"], start=1):
         cell_set(rows[i].findall(q("a:tc"))[1], text, rpr)
     # 19-25 datasheet slides of particular models, plus generic spec slides
     for n in (19, 20, 21):
@@ -428,6 +605,11 @@ def build() -> None:
         tag_slide(pkg.slide(n), "offer:ds_inverter:SG150CX")
     for n in (24, 25):
         tag_slide(pkg.slide(n), "offer:ds_inverter:SG125CX-P2")
+    components_slide(pkg, 50)
+    clone_slide(pkg, 15, 49, after_slide=15)
+    # (after the copy for slide 49) under the table: the footnote for a DC/AC ratio above 1.21 (empty otherwise)
+    footnote(pkg.slide(15), 0.5, 4.97, 9.0, 0.38, "{{DCACNote}}", size=8)
+    subsystem_slide(pkg, 49)
     clone_slide(pkg, 23, 47, after_slide=21)
     clone_slide(pkg, 23, 48, after_slide=25)
     spec_slide(pkg, 47, tbl15, "{{ModuleMake}} {{ModuleModel}} PV Module Specification from Manufacturer’s Datasheet",
@@ -438,8 +620,8 @@ def build() -> None:
     s27 = pkg.slide(27)
     set_run(s27, "710Wp", "{{PanelCap}}Wp")
     set_run(s27, "AstroEnergy", "{{ModuleMake}}")
-    set_run(s27, "125kW ", "{{InverterQty}} × {{InverterUnitKW}}kW ")
-    set_run(s27, "(125kW CX-P2) from ", "({{InverterModel}}) from ")
+    set_run(s27, "125kW ", "{{InverterMix}} ")
+    set_run(s27, "(125kW CX-P2) from ", "from ")
     set_run(s27, "Sungrow", "{{InverterMake}}")
     for h in list(s27.iter(q("a:highlight"))):
         h.getparent().remove(h)

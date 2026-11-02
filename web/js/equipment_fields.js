@@ -522,6 +522,26 @@ export const MODULE_FIELDS = [
   "extract": true
  },
  {
+  "key": "degradation_first_pct",
+  "label": "First-year degradation",
+  "type": "float",
+  "unit": "%",
+  "group": "Warranty",
+  "hint": "from the linear power warranty, e.g. 1",
+  "required": false,
+  "extract": true
+ },
+ {
+  "key": "degradation_annual_pct",
+  "label": "Annual degradation after year 1",
+  "type": "float",
+  "unit": "%",
+  "group": "Warranty",
+  "hint": "e.g. 0.40",
+  "required": false,
+  "extract": true
+ },
+ {
   "key": "notes",
   "label": "Design notes",
   "type": "text",

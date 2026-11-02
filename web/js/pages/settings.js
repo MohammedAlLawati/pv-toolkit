@@ -1,6 +1,7 @@
 import { download, fileUrl, go, html, readImage, toast } from "../ui.js";
 import * as db from "../store.js";
 import { setTitle } from "../app.js";
+import * as cloud from "../cloud.js";
 
 const SLOTS = [["letterhead_top", "Letterhead top (header)"], ["letterhead_bottom", "Letterhead bottom (footer)"]];
 
@@ -10,7 +11,9 @@ export async function settings(main) {
   const est = await navigator.storage?.estimate?.().catch(() => null);
   const persisted = await navigator.storage?.persisted?.().catch(() => false);
   main.innerHTML = html`
-<div class="head"><div><h1>Letterhead &amp; backup</h1><div class="muted">Everything you enter is kept in this browser on this device. Nothing is sent anywhere.</div></div></div>
+<div class="head"><div><h1>Letterhead &amp; backup</h1><div class="muted">${cloud.configured
+  ? html`Everything you enter is kept in this browser, and saved to the cloud while you're signed in (<a href="#/account">${cloud.signedIn() ? "User info" : "Sign in"}</a>).`
+  : "Everything you enter is kept in this browser on this device. Nothing is sent anywhere."}</div></div></div>
 
 <div class="panel">
   <h2>Company letterhead</h2>
@@ -65,3 +68,4 @@ export async function settings(main) {
     } catch (err) { toast(err.message, "error"); }
   });
 }
+

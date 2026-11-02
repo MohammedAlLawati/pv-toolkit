@@ -1,14 +1,17 @@
-// Offer decks: the techno-commercial PowerPoint, either as a quick offer (client, capacities,
-// price, and pictures typed in or taken from Helioscope reports) or from a full project, with a preview of the
-// figures that go into it. The deck itself is filled in js/offer/ (see generateOffer).
-import { download, fileUrl, float, g, go, html, num, readImage, shortDate, str, toast } from "../ui.js";
+// Offer decks: the techno-commercial PowerPoint, either as a quick offer (client, equipment,
+// price per kWp, and the pictures and figures of the Helioscope reports) or from a full
+// project, with a preview of the figures that go into it. The deck itself is filled in
+// js/offer/ (see generateOffer).
+import { download, fileUrl, float, g, go, html, num, raw, readImage, sel, shortDate, str, toast } from "../ui.js";
 import * as db from "../store.js";
 import { byName, byUpdated, dcKwp, loadAll } from "../data.js";
 import { setTitle } from "../app.js";
 import { generateOffer } from "../docgen/generate.js";
 import { fmtOmr } from "../docgen/context.js";
-import { MONTHS, buildOfferValues, offerMissing, parseMonthly } from "../offer/values.js";
-import { IMAGE_KEYS, QUICK_DEFAULTS, SPECIFIC_YIELD, annualKwh, quickMissing, toProject } from "../offer/quick.js";
+import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing, parseMonthly } from "../offer/values.js";
+import { DCAC_GREEN, DCAC_MAX, DCAC_MIN, DCAC_NOTE, DEFAULT_INSTALLATION, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
+  annualKwh, capacities, quickMissing, ratioBand, suggestInverters, suggestCode, systemIssues, systemTotals, systemsOf,
+  toProject } from "../offer/quick.js";
 import { inverterOptions, moduleOptions } from "../options.js";
 
 // [project field, label, what happens without it]
@@ -50,13 +53,13 @@ export async function list(main) {
   <h2>Offers</h2>
   ${offers.length ? html`<div class="table-scroll"><table>
     <thead><tr><th>Client</th><th class="r">DC kWp</th><th class="r">AC kW</th><th class="r">Price (OMR)</th><th>Updated</th><th></th></tr></thead>
-    <tbody>${offers.map((o) => html`<tr>
+    <tbody>${offers.map((o) => { const p = toProject(o, all); return html`<tr>
       <td><a href="#/offers/quick/${o.id}">${o.client_name || "(no name)"}</a></td>
-      <td class="r num">${num(o.dc_kwp)}</td><td class="r num">${num(o.ac_kw)}</td>
-      <td class="r num">${fmtOmr(o.subtotal_omr) || "—"}</td>
+      <td class="r num">${num(p.dc_kwp)}</td><td class="r num">${num(p.ac_kw)}</td>
+      <td class="r num">${fmtOmr(p.subtotal_omr) || "—"}</td>
       <td class="muted small">${shortDate(o.updated_at)}</td>
-      <td class="r"><button class="btn small" data-quick="${o.id}">PowerPoint</button></td></tr>`)}</tbody>
-  </table></div>` : html`<div class="empty">No offers yet. <a href="#/offers/new">Make one</a> from the client name, capacity, price and pictures (or a Helioscope report).</div>`}
+      <td class="r"><button class="btn small" data-quick="${o.id}">PowerPoint</button></td></tr>`; })}</tbody>
+  </table></div>` : html`<div class="empty">No offers yet. <a href="#/offers/new">Make one</a> from the client, equipment, price per kWp and the Helioscope reports.</div>`}
 </div>
 <div class="panel">
   <h2>From projects</h2>
@@ -86,17 +89,23 @@ export async function list(main) {
 
 // ---- the figures that go into a deck -----------------------------------------------------
 
-function monthlyBars(months) {
+/** Monthly generation as a bar chart, with each month's MWh above its bar. */
+export function monthlyBars(months) {
   const max = Math.max(...months, 1);
-  return html`<div class="bars">${months.map((k, i) => html`
-    <div class="bar" title="${MONTHS[i]}: ${num(k, 0)} kWh"><i style="height:${((k / max) * 100).toFixed(1)}%"></i><span>${MONTHS[i]}</span></div>`)}</div>`;
+  return html`<div class="bars labelled">${months.map((k, i) => html`
+    <div class="bar" title="${MONTHS[i]}: ${num(k, 0)} kWh"><em>${num(k / 1000, 1)}</em><i style="height:${((k / max) * 82).toFixed(1)}%"></i><span>${MONTHS[i]}</span></div>`)}</div>
+    <p class="small muted">MWh per month · total ${num(months.reduce((a, b) => a + b, 0) / 1000, 1)} MWh</p>`;
 }
+
+const shadingFlag = (pct) => (pct > SHADING_LIMIT_PCT
+  ? html`<div class="flash warn">Shading losses are ${num(pct, 1)}%, above the ${SHADING_LIMIT_PCT}% limit. Slide 16 says so in place of the "minimal shading" wording.</div>` : "");
 
 /** Summary row plus energy / returns / environment panels for a project-shaped record. */
 function figures(p, energyNote) {
   const { values: v, months, flow, annual } = buildOfferValues(p);
   const cum25 = flow?.years[24]?.cumulative;
   return html`
+${shadingFlag(p.shading_loss_pct)}
 <div class="summary">
   <div><span>System</span><b>${v.DCCapacity || "—"} kWp</b><small class="muted">${v.ACCapacity ? `${v.ACCapacity} kW AC` : ""}${v.DCACRatioPct ? ` · ${v.DCACRatioPct}%` : ""}</small></div>
   <div><span>Price before VAT</span><b>${v.Subtotal ? `OMR ${v.Subtotal}` : "—"}</b><small class="muted">${v.OmrPerKwp ? `${v.OmrPerKwp} OMR/kWp` : ""}</small></div>
@@ -176,15 +185,96 @@ ${figures(p, estimated ? "Monthly figures are the annual figure spread over a ty
   main.querySelector("#deck").addEventListener("click", (e) => downloadDeck(e.target, p));
 }
 
+
 // ---- quick offer: a few inputs -> the whole deck -----------------------------------------
 
-const SLOT_NAMES = { offer_site_file_id: "Location", offer_shadow_file_id: "Shading", offer_structure_file_id: "Structure" };
-
-const ENERGY_NOTE = {
-  monthly: "Monthly figures as entered.",
-  annual: "Monthly figures are the annual figure spread over a typical Oman year.",
-  yield: "Estimated as DC capacity × specific yield, spread over a typical Oman year.",
+const ENERGY_SOURCE = {
+  helioscope: "From the Helioscope reports.",
+  annual: "Annual figure as entered; months follow a typical Oman year.",
+  monthly: "From the monthly figures.",
+  yield: "Estimated as DC capacity × specific yield. Add the Helioscope reports for the simulated figures.",
 };
+const KIND_NAMES = { simulation: "Simulation report", shading: "Shading report", report: "Report" };
+const CORNERS = [["tl", "↖", "Top left"], ["tr", "↗", "Top right"], ["bl", "↙", "Bottom left"], ["br", "↘", "Bottom right"]];
+// where the 12 monthly figures came from
+const MONTHLY_SOURCE = {
+  table: "Monthly figures: the AC Power (kWh) row of the \"Solar Access by Month\" table on page 2 of the shading report (read off the scanned page and checked against the report totals).",
+  chart: "Monthly figures: measured off the Monthly Production bar chart on page 1 of the simulation report, then scaled to the annual total, so each can be up to about 1% out. Add the shading report for the exact figures from its Solar Access by Month table, or paste them under \"Change the figures\".",
+  typed: "Monthly figures as entered under \"Change the figures\", scaled to the annual total.",
+};
+// every stored picture of a quick offer: the slide pictures and the client's logo (cover slide)
+const FLASH_OF = { ok: "ok", high: "warn", bad: "error" };
+/** What a ratio means, after "DC/AC ratio 1.23". */
+const ratioSays = (r) => ({
+  ok: `, within ${DCAC_MIN}–${DCAC_GREEN}.`,
+  high: `, above ${DCAC_GREEN} but within the ${DCAC_MAX} limit.${r > DCAC_NOTE + 1e-9 ? " The offer will note it for the client to confirm." : ""}`,
+  bad: `, outside ${DCAC_MIN}–${DCAC_MAX}. Pick one of the suggestions below.`,
+})[ratioBand(r)];
+
+const PIC_FIELDS = [...IMAGE_KEYS.map(([key]) => key), "client_logo_file_id"];
+const SLOT_SHORT = { offer_site_file_id: "Location", offer_shadow_file_id: "Shading", offer_structure_file_id: "3D left", offer_structure2_file_id: "3D right" };
+const FIELD_OF = Object.fromEntries(Object.entries(SLOT_OF).map(([field, slot]) => [slot, field]));
+
+/** The corner of a picture where the logo covers least. */
+async function cornerOf(blob) {
+  const { quietCorner } = await import("../offer/helioscope.js");
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement("canvas");
+  c.width = Math.min(800, bmp.width); c.height = Math.round((bmp.height * c.width) / bmp.width);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  return quietCorner(ctx);
+}
+
+/** A step of 1, 2 or 5 × 10^n giving about `n` intervals over `span`. */
+function niceStep(span, n = 4) {
+  const raw = span / n, mag = 10 ** Math.floor(Math.log10(raw || 1));
+  return [1, 2, 5, 10].map((k) => k * mag).find((st) => st >= raw) || mag * 10;
+}
+
+/**
+ * A column chart (inline SVG): one bar per value, negatives below the zero line.
+ * `marker` draws a dashed line at a fractional position (e.g. the payback year).
+ */
+function columnChart(vals, { label = (i) => String(i + 1), every = 5, fmt = (v) => num(v, 0), marker = null, markerText = "" } = {}) {
+  const W = 640, H = 230, L = 64, R = 10, T = 12, B = 24;
+  const step = niceStep(Math.max(...vals, 0) - Math.min(...vals, 0) || 1);
+  const lo = Math.floor(Math.min(0, ...vals) / step) * step, hi = Math.ceil(Math.max(0, ...vals) / step) * step || step;
+  const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+  const bw = (W - L - R) / vals.length;
+  const ticks = [];
+  for (let t = lo; t <= hi + step / 2; t += step) ticks.push(t);
+  return raw(`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">
+    ${ticks.map((t) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join("")}
+    ${vals.map((v, i) => `<rect class="${v < 0 ? "neg" : "pos"}" x="${L + i * bw + bw * 0.15}" width="${bw * 0.7}" y="${Math.min(y(v), y(0))}" height="${Math.max(1, Math.abs(y(v) - y(0)))}"><title>${label(i)}: ${fmt(v)}</title></rect>`).join("")}
+    <line class="zero" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/>
+    ${vals.map((_, i) => (i === 0 || (i + 1) % every === 0 ? `<text class="tick" x="${L + (i + 0.5) * bw}" y="${H - 6}" text-anchor="middle">${label(i)}</text>` : "")).join("")}
+    ${marker !== null ? `<line class="marker" x1="${L + marker * bw}" x2="${L + marker * bw}" y1="${T}" y2="${H - B}"/><text class="mark" x="${L + marker * bw + 4}" y="${T + 10}">${markerText}</text>` : ""}
+  </svg>`);
+}
+
+/** Totals, payback and the environmental figures of the deck, under the form. */
+function deckSummary(p) {
+  const { values: v } = buildOfferValues(p);
+  return html`
+<div class="summary">
+  <div><span>System</span><b>${v.DCCapacity || "—"} kWp</b><small class="muted">${v.ACCapacity ? `${v.ACCapacity} kW AC` : ""}${v.DCACRatioPct ? ` · ${v.DCACRatioPct}%` : ""}</small></div>
+  <div><span>Price before VAT</span><b>${v.Subtotal ? `OMR ${v.Subtotal}` : "—"}</b><small class="muted">${v.OmrPerKwp ? `${v.OmrPerKwp} OMR/kWp` : ""}</small></div>
+  <div><span>Year 1 generation</span><b>${v.AnnualGenKWh ? `${v.AnnualGenKWh} kWh` : "—"}</b><small class="muted"></small></div>
+  <div><span>Payback · ROI</span><b>${v.PaybackText || "—"}</b><small class="muted">${v.ROI ? `ROI ${v.ROI}% a year` : ""}</small></div>
+</div>
+<div class="panel">
+  <h2>Environmental equivalents (per year)</h2>
+  <dl class="kv">
+    <dt>CO₂ avoided</dt><dd>${v.CO2Tonnes ? `${v.CO2Tonnes} t` : "—"}</dd>
+    <dt>Omani homes powered</dt><dd>${v.Homes || "—"}</dd>
+    <dt>Gas saved</dt><dd>${v.GasGallons ? `${v.GasGallons} gallons` : "—"}</dd>
+    <dt>Cars off the road</dt><dd>${v.Cars || "—"}</dd>
+    <dt>Tree seedlings (10 years)</dt><dd>${v.Seedlings || "—"}</dd>
+  </dl>
+</div>`;
+}
 
 export async function quick(main, { params, query }) {
   const all = await loadAll();
@@ -192,18 +282,29 @@ export async function quick(main, { params, query }) {
   if (params.id) {
     o = await db.get("offers", params.id);
     if (!o) return notFound(main, "Offer");
+    o = { ...QUICK_DEFAULTS, ...o };
+    // older offers kept a total price and typed capacities
+    if (!o.price_per_kwp && o.subtotal_omr && o.dc_kwp) o.price_per_kwp = Math.round((o.subtotal_omr / o.dc_kwp) * 1000) / 1000;
   } else {
-    o = { ...QUICK_DEFAULTS };
-    // start from the most recent offer's equipment and commercial settings
+    o = { ...QUICK_DEFAULTS, logo_corners: {}, subsystems: [] };
+    // start from the most recent offer's module and commercial settings
     const last = byUpdated(await db.list("offers"))[0];
-    if (last) for (const k of ["module_id", "inverter_id", "installation_type", "tariff_bz", "degradation_pct", "specific_yield"]) o[k] = last[k];
+    if (last) for (const k of ["tariff_bz", "degradation_pct", "specific_yield", "price_per_kwp"]) if (last[k] !== undefined) o[k] = last[k];
+    const prev = last ? systemsOf(last)[0] : null;
+    o.subsystems = [{ name: "", desc: "", installation_type: prev?.installation_type || DEFAULT_INSTALLATION, elevation_m: null,
+                      tilt_deg: null, azimuth_deg: null, module_id: prev?.module_id || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null }];
     if (query.client) o.client_name = query.client;
   }
   setTitle(params.id ? `Offer · ${o.client_name}` : "New offer");
+  const schedule = (o.schedule || DEFAULT_SCHEDULE).map((a) => ({ name: a.name, start: a.start, weeks: a.weeks }));
+  const subsystems = systemsOf(o).map((r) => ({ ...r, inverters: (r.inverters || []).map((x) => ({ ...x })) }));
+  const designTypes = [...new Set([...DESIGN_TYPES, ...(await db.getSetting("design_types", [])), ...subsystems.map((r) => r.installation_type)].filter(Boolean))];
+  const corners = { ...(o.logo_corners || {}) };
+  let codeEdited = !!o.reference_code && o.reference_code !== suggestCode(o.client_name);
 
-  // pictures: { key: { id } (stored) | { blob, width, height, name } (not saved yet) | null }
+  // pictures: { field: { id, url } (stored) | { blob, width, height, name } (not saved yet) | null }
   const pics = {};
-  for (const [key] of IMAGE_KEYS) {
+  for (const key of PIC_FIELDS) {
     const f = await db.getFile(o[key]);
     pics[key] = f ? { id: f.id, url: fileUrl(f) } : null;
   }
@@ -211,171 +312,494 @@ export async function quick(main, { params, query }) {
 
   main.innerHTML = html`
 <div class="head">
-  <div><h1>${params.id ? o.client_name || "Offer" : "New offer"}</h1><div class="muted"><a href="#/offers">Offer decks</a> · fill in the essentials, the rest is worked out.</div></div>
+  <div><h1>${params.id ? o.client_name || "Offer" : "New offer"}</h1><div class="muted"><a href="#/offers">Offer decks</a> · start with the Helioscope reports; the rest is worked out and can be changed.</div></div>
   <div class="actions">${params.id ? html`<button class="btn danger small" id="delete" data-confirm="Delete this offer?">Delete</button>` : ""}
     <button class="btn" id="save">Save</button><button class="btn primary" id="deck">Save and download PowerPoint</button></div>
 </div>
 <form id="offer" class="quick" autocomplete="off">
   <div class="panel">
+    <h2>Helioscope reports</h2>
+    <p class="small muted">They fill in the equipment and counts, the energy figures, the shading loss and the pictures for slides 14, 16 and 17. Anything they fill can be changed below.</p>
+    <div class="fields reports">
+      <label>Simulation report (PDF) <input type="file" data-report="simulation" accept="application/pdf"><span class="hint" data-report-status="simulation">Annual production report: equipment, energy, layout</span></label>
+      <label>Shading report (PDF) <input type="file" data-report="shading" accept="application/pdf"><span class="hint" data-report-status="shading">Shading heatmap, losses and the two 3D views</span></label>
+    </div>
+    <div id="report-found"></div>
+  </div>
+
+  <div class="panel">
     <h2>Essentials</h2>
     <div class="fields">
       <label class="wide">Client name <input name="client_name" value="${o.client_name}" list="client-names" required></label>
-      <label>DC capacity (kWp) <input name="dc_kwp" value="${g(o.dc_kwp)}" inputmode="decimal" required></label>
-      <label>AC capacity (kW) <input name="ac_kw" value="${g(o.ac_kw)}" inputmode="decimal" required></label>
-      <label>Price before VAT (OMR) <input name="subtotal_omr" value="${g(o.subtotal_omr)}" inputmode="decimal" required></label>
-      <label>Reference code <input name="reference_code" value="${o.reference_code}" placeholder="Client initials"><span class="hint">In "HTC/&lt;code&gt;/TCO/01"</span></label>
+      <label>Reference code <input name="reference_code" value="${o.reference_code || suggestCode(o.client_name)}"><span class="hint">In "HTC/&lt;code&gt;/TCO/01". Suggested from the client's initials</span></label>
+      <div class="client-logo"><span class="small">Client logo <span class="muted">(cover slide)</span></span><div id="client-logo"></div></div>
     </div>
     <datalist id="client-names">${byName(all.clients).map((c) => html`<option value="${c.name}">`)}</datalist>
   </div>
 
   <div class="panel">
-    <div class="panel-head"><h2>Helioscope reports <span class="muted small">(optional)</span></h2></div>
-    <label>PDF reports <span class="hint">Choose the simulation and shading reports together. The layout and shading heatmap go on their slides; any other picture can be picked or cropped</span>
-      <input type="file" id="report" accept="application/pdf" multiple></label>
-    <div id="report-out"></div>
-  </div>
-
-  <div class="panel">
-    <h2>Pictures</h2>
-    <div class="pics" id="pics"></div>
+    <div class="panel-head"><h2>System</h2><span class="btns"><button type="button" class="btn small" id="ss-add">Add sub-system</button></span></div>
+    <p class="small muted">Enter each sub-system (a POC, roof or orientation) with its PV module and number of panels, then pick its inverters: the suggestions keep the DC/AC ratio between ${DCAC_MIN} and ${DCAC_MAX} with as few inverters as possible.</p>
+    ${!all.modules.length || !all.inverters.length ? html`<p class="small muted">The equipment library is empty. <a href="#/library">Load the Jinko modules and Sungrow inverters</a> to pick them here.</p>` : ""}
+    <div id="subsystems"></div>
+    <h3 class="spaced-top">Whole system</h3>
+    <div id="system-summary"></div>
   </div>
 
   <div class="panel">
     <h2>Energy</h2>
+    <div id="energy-summary"></div>
+    <div id="energy-chart" class="spaced-top"></div>
+    <details class="spaced-top"><summary class="small">Change the figures</summary>
+      <div class="fields spaced-top">
+        <label>Annual generation, year 1 (kWh) <input name="annual_gen_kwh" value="${g(o.annual_gen_kwh)}" inputmode="decimal"><span class="hint">Blank = DC × specific yield</span></label>
+        <label>Specific yield (kWh/kWp) <input name="specific_yield" value="${g(o.specific_yield)}" inputmode="decimal" placeholder="${SPECIFIC_YIELD}"></label>
+        <label>Performance ratio (%) <input name="pr_pct" value="${g(o.pr_pct)}" inputmode="decimal"></label>
+        <label>Shading losses (%) <input name="shading_loss_pct" value="${g(o.shading_loss_pct)}" inputmode="decimal"><span class="hint">Over ${SHADING_LIMIT_PCT}% is flagged on slide 16</span></label>
+        <div class="wide month-edit"><span class="lbl">Monthly generation (kWh)</span>
+          <div class="months">${MONTHS.map((m, i) => html`<label>${m}<input data-month="${i}" inputmode="decimal" value="${o.monthly_kwh ? Math.round(o.monthly_kwh[i]) : ""}"></label>`)}</div>
+          <input type="hidden" name="monthly_text" value="${o.monthly_kwh ? o.monthly_kwh.map((x) => Math.round(x)).join(" ") : ""}">
+          <span class="hint small muted" id="monthly-hint">You can paste all 12 figures into January, e.g. the AC Power (kWh) row of Helioscope's Solar Access by Month table.</span></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="panel">
+    <h2>Payback and commercials</h2>
     <div class="fields">
-      <label>Annual generation (kWh) <input name="annual_gen_kwh" value="${g(o.annual_gen_kwh)}" inputmode="decimal"><span class="hint">Blank = DC × specific yield</span></label>
-      <label>Specific yield (kWh/kWp) <input name="specific_yield" value="${g(o.specific_yield)}" inputmode="decimal" placeholder="${SPECIFIC_YIELD}"></label>
-      <label>Tariff (bz/kWh) <input name="tariff_bz" value="${g(o.tariff_bz)}" inputmode="decimal"></label>
-      <label>Yearly degradation (%) <input name="degradation_pct" value="${g(o.degradation_pct)}" inputmode="decimal"></label>
-      <label class="wide">Monthly generation, Jan to Dec (kWh) <span class="hint">Optional: 12 figures from PVsyst or Helioscope. Their total replaces the annual figure</span>
-        <textarea name="monthly_kwh" rows="2">${Array.isArray(o.monthly_kwh) ? o.monthly_kwh.map((x) => g(x)).join(" ") : ""}</textarea></label>
+      <label>Price (OMR per kWp) <input name="price_per_kwp" value="${g(o.price_per_kwp)}" inputmode="decimal" required><span class="hint" id="total"></span></label>
+      <label>Tariff (bz/kWh) <input name="tariff_bz" value="${g(o.tariff_bz)}" inputmode="decimal"><span class="hint">Values the energy produced</span></label>
+      <label id="deg-input">Yearly degradation (%) <input name="degradation_pct" value="${g(o.degradation_pct)}" inputmode="decimal"><span class="hint">This module's library entry has no degradation figures</span></label>
+      <div class="wide small" id="deg-note"></div>
+    </div>
+    <div id="payback-summary" class="spaced-top"></div>
+    <div class="grid2 spaced-top">
+      <div><h3>Cumulative cash flow (OMR)</h3><div id="chart-cash"></div></div>
+      <div><h3>Generation each year, after degradation (MWh)</h3><div id="chart-years"></div></div>
     </div>
   </div>
 
   <div class="panel">
-    <h2>Equipment and site <span class="muted small">(optional)</span></h2>
-    <div class="fields">
-      <label class="wide">PV module <select name="module_id">${moduleOptions(all.modules, o.module_id, { blank: "Not chosen (spec slide left blank)" })}</select>
-        <span class="hint" id="module-count"></span></label>
-      <label class="wide">Inverter <select name="inverter_id">${inverterOptions(all.inverters, o.inverter_id, { blank: "Not chosen (spec slide left blank)" })}</select>
-        <span class="hint" id="inverter-qty"></span></label>
-      <label>Installation type <input name="installation_type" value="${o.installation_type}" list="install-types"></label>
-      <label>Structure height (m) <input name="elevation_m" value="${g(o.elevation_m)}" inputmode="decimal"></label>
-      <label>Tilt (°) <input name="tilt_deg" value="${g(o.tilt_deg)}" inputmode="decimal"></label>
-      <label>Azimuth (°) <input name="azimuth_deg" value="${g(o.azimuth_deg)}" inputmode="decimal" placeholder="180 = south"></label>
-    </div>
-    <datalist id="install-types"><option value="Elevated Flat Roof"><option value="Flush-mount Flat Roof"><option value="Metal Sheet Roof"><option value="Car Park Structure"><option value="Ground Mount"></datalist>
+    <h2>Pictures</h2>
+    <p class="small muted">The arrows choose the corner the HTC logo sits in. It starts in the corner with the least going on.</p>
+    <div class="pics" id="pics"></div>
+    <div id="report-out"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Project schedule</h2><span class="btns"><button type="button" class="btn small" id="sched-add">Add activity</button><button type="button" class="btn small" id="sched-reset">Reset to the template</button></span></div>
+    <p class="small muted">Drag across a row to set when an activity runs, or type the start week and length. Weeks after the last activity are left off the deck.</p>
+    <div class="gantt" id="gantt"></div>
   </div>
 </form>
-<h2 class="spaced-top">Preview</h2>
+<h2 class="spaced-top">Deck summary</h2>
 <div id="preview"></div>
 <div class="crop" id="crop" hidden></div>`;
 
   const form = main.querySelector("#offer");
   const pos = (fd, k) => { const v = float(fd, k); return v !== null && v > 0 ? v : null; };
 
-  /** The form as an offer record (does not touch pictures). */
+  /** The form as an offer record (pictures and corners are added on save). */
   function read() {
     const fd = new FormData(form);
-    const monthlyRaw = str(fd, "monthly_kwh");
     return {
       ...o,
       client_name: str(fd, "client_name"), reference_code: str(fd, "reference_code").toUpperCase(),
-      dc_kwp: pos(fd, "dc_kwp"), ac_kw: pos(fd, "ac_kw"), subtotal_omr: pos(fd, "subtotal_omr"),
+      price_per_kwp: pos(fd, "price_per_kwp"), subtotal_omr: null,
+      // the older single-equipment fields are replaced by the sub-systems
+      module_id: null, module_count: null, inverter_id: null, inverter_qty: null, dc_kwp: null, ac_kw: null, split_system: undefined,
       annual_gen_kwh: pos(fd, "annual_gen_kwh"), specific_yield: pos(fd, "specific_yield") ?? SPECIFIC_YIELD,
-      monthly_kwh: monthlyRaw ? parseMonthly(monthlyRaw) : null, monthly_raw_bad: !!monthlyRaw && !parseMonthly(monthlyRaw),
+      pr_pct: pos(fd, "pr_pct"), shading_loss_pct: float(fd, "shading_loss_pct"),
       tariff_bz: float(fd, "tariff_bz") ?? 32, degradation_pct: float(fd, "degradation_pct") ?? 0.65,
-      module_id: Number(fd.get("module_id")) || null, inverter_id: Number(fd.get("inverter_id")) || null,
-      installation_type: str(fd, "installation_type"), elevation_m: pos(fd, "elevation_m"),
-      tilt_deg: float(fd, "tilt_deg"), azimuth_deg: float(fd, "azimuth_deg"),
+      // design type, height, tilt and azimuth are kept per sub-system
+      installation_type: undefined, elevation_m: undefined, tilt_deg: undefined, azimuth_deg: undefined,
+      subsystems: subsystems.map((r) => ({ ...r, inverters: r.inverters.map((x) => ({ ...x })) })),
+      schedule: schedule.map((a) => ({ ...a })), logo_corners: { ...corners },
     };
+  }
+
+  function setField(name, value) {
+    const el = form.elements[name];
+    if (el && value !== null && value !== undefined) el.value = typeof value === "number" ? g(value) : value;
   }
 
   function preview() {
     const cur = read();
     const p = toProject(cur, all);
-    const { source } = annualKwh(cur);
-    main.querySelector("#module-count").textContent = p.module_count ? `${p.module_count} modules for ${num(cur.dc_kwp)} kWp` : "";
-    main.querySelector("#inverter-qty").textContent = p.inverter_qty ? `${p.inverter_qty} inverter${p.inverter_qty === 1 ? "" : "s"} for ${num(cur.ac_kw)} kW` : "";
-    const missing = quickMissing(cur);
+    const { dc } = capacities(cur, all);
+    main.querySelector("#total").textContent = p.subtotal_omr ? `Total OMR ${fmtOmr(p.subtotal_omr)} before VAT (${num(cur.price_per_kwp, 3)} × ${num(dc)} kWp)` : "Total = price × DC kWp";
+    if (!codeEdited) form.elements.reference_code.value = suggestCode(cur.client_name);
+    drawSystemFigures(cur);
+
+    const { values: v, months, flow } = buildOfferValues(p);
+    // energy: a summary of the simulated (or estimated) figures
+    const { kwh, source } = annualKwh(cur, dc);
+    const sy = kwh && dc ? kwh / dc : null;
+    main.querySelector("#energy-summary").innerHTML = html`
+      ${cur.shading_loss_pct > SHADING_LIMIT_PCT ? html`<div class="flash warn">Shading losses are ${num(cur.shading_loss_pct, 1)}%, above the ${SHADING_LIMIT_PCT}% limit. Slide 16 says so in place of the "minimal shading" wording.</div>` : ""}
+      <div class="summary">
+        <div><span>Generation, year 1</span><b>${kwh ? `${num(kwh / 1000, 1)} MWh` : "—"}</b><small class="muted">${kwh ? `${num(kwh, 0)} kWh` : ""}</small></div>
+        <div><span>Specific yield</span><b>${sy ? `${num(sy, 1)}` : "—"}</b><small class="muted">kWh/kWp a year</small></div>
+        <div><span>Performance ratio</span><b>${cur.pr_pct ? `${num(cur.pr_pct, 1)}%` : "—"}</b><small class="muted">${cur.pr_pct ? "" : "Not in the reports yet"}</small></div>
+        <div><span>Shading losses</span><b class="${cur.shading_loss_pct > SHADING_LIMIT_PCT ? "missing-text" : ""}">${cur.shading_loss_pct !== null && cur.shading_loss_pct !== undefined ? `${num(cur.shading_loss_pct, 1)}%` : "—"}</b><small class="muted">limit ${SHADING_LIMIT_PCT}%</small></div>
+      </div>
+      <p class="small muted">${source ? (cur.energy_source === "helioscope" && source !== "yield" ? ENERGY_SOURCE.helioscope : ENERGY_SOURCE[source]) : "Pick the module and number of panels, or add the reports."}
+        ${months && Array.isArray(p.monthly_kwh) ? MONTHLY_SOURCE[cur.monthly_source] || "" : months ? "Monthly figures: the annual figure spread over a typical Oman year." : ""}</p>`;
+    main.querySelector("#energy-chart").innerHTML = months ? monthlyBars(months).toString() : "";
+
+    // payback
+    const deg = flow?.degradation;
+    const moduleDeg = p.module && Number.isFinite(p.module.degradation_first_pct);
+    main.querySelector("#deg-input").hidden = !!moduleDeg;
+    main.querySelector("#deg-note").innerHTML = moduleDeg
+      ? html`<b>Degradation:</b> ${num(deg.first, 2)}% in the first year, then ${num(deg.annual, 2)}% a year, from the ${p.module.model} datasheet (linear power warranty).`
+      : "";
+    const cum25 = flow?.years[24]?.cumulative;
+    main.querySelector("#payback-summary").innerHTML = html`<div class="summary">
+      <div><span>Year 1 savings</span><b>${v.AnnualSavings ? `OMR ${v.AnnualSavings}` : "—"}</b><small class="muted">at ${v.TariffBz} bz/kWh</small></div>
+      <div><span>Payback</span><b>${v.PaybackText || "—"}</b><small class="muted">${p.subtotal_omr ? "" : "Needs the price"}</small></div>
+      <div><span>ROI</span><b>${v.ROI ? `${v.ROI}%` : "—"}</b><small class="muted">average yearly savings ÷ price</small></div>
+      <div><span>Net after 25 years</span><b>${cum25 !== undefined && p.subtotal_omr ? `OMR ${num(cum25, 0)}` : "—"}</b><small class="muted"></small></div></div>`;
+    main.querySelector("#chart-cash").innerHTML = flow && p.subtotal_omr
+      ? columnChart(flow.years.map((y) => y.cumulative), { label: (i) => `Y${i + 1}`, marker: flow.payback, markerText: "Payback" }).toString()
+      : html`<div class="empty small">Needs the price and the generation.</div>`.toString();
+    main.querySelector("#chart-years").innerHTML = flow
+      ? columnChart(flow.years.map((y) => y.kwh / 1000), { label: (i) => `Y${i + 1}`, fmt: (x) => num(x, 0) }).toString()
+      : html`<div class="empty small">Needs the generation.</div>`.toString();
+
+    const missing = [...quickMissing(cur, all), ...(systemIssues(cur, all).length ? [`DC/AC ratios within ${DCAC_MIN}–${DCAC_MAX}`] : [])];
     main.querySelector("#preview").innerHTML = html`
       ${missing.length ? html`<div class="flash warn">Still needs: ${missing.join(", ")}.</div>` : ""}
-      ${cur.monthly_raw_bad ? html`<div class="flash warn">Monthly generation needs exactly 12 numbers; it's ignored until then.</div>` : ""}
-      ${figures(p, source ? ENERGY_NOTE[source] : "")}`;
+      ${deckSummary(p)}`;
   }
 
-  // pictures
+  // ---- sub-systems: modules first, then the inverter combination
+  const subBox = main.querySelector("#subsystems");
+  const invById = new Map(all.inverters.map((x) => [x.id, x]));
+  const ratioText = (r) => (r === null ? "—" : num(r, 2));
+  const blankSub = () => ({ name: "", desc: "", installation_type: subsystems.at(-1)?.installation_type || DEFAULT_INSTALLATION,
+    elevation_m: null, tilt_deg: null, azimuth_deg: null, module_id: subsystems.at(-1)?.module_id || null, modules: null, dc_kwp: null, inverters: [], ac_kw: null });
+  let picks = [];  // suggested combinations per sub-system, as last drawn
+  function drawSubsystems() {
+    const many = subsystems.length > 1;
+    subBox.innerHTML = html`${subsystems.map((r, i) => html`<div class="ss-card" data-ss="${i}">
+      <div class="ss-head"><b>${many ? `Sub-system ${i + 1}` : "System"}</b>
+        <input data-f="name" value="${r.name || ""}" placeholder="${many ? `POC ${i + 1}` : "Name (optional)"}" aria-label="Name">
+        <input data-f="desc" value="${r.desc || ""}" placeholder="Description, e.g. Block A roof, facing east" aria-label="Description" class="grow">
+        ${many ? html`<button type="button" class="btn small" data-ss-del="${i}" title="Remove this sub-system">×</button>` : ""}</div>
+      <div class="fields">
+        <label>Design type <select data-f="installation_type">${designTypes.map((t) => html`<option ${sel(t === r.installation_type)}>${t}</option>`)}<option value="__new">Add a type…</option></select></label>
+        <label>Structure height (m) <input data-f="elevation_m" value="${g(r.elevation_m)}" inputmode="decimal"></label>
+        <label>Tilt (°) <input data-f="tilt_deg" value="${g(r.tilt_deg)}" inputmode="decimal"></label>
+        <label>Azimuth (°) <input data-f="azimuth_deg" value="${g(r.azimuth_deg)}" inputmode="decimal" placeholder="180 = south"></label>
+      </div>
+      <div class="fields spaced-top">
+        <label class="wide">PV module <select data-f="module_id">${moduleOptions(all.modules, r.module_id, { blank: "Not in the library (type the DC capacity)" })}</select></label>
+        <label>Number of panels <input data-f="modules" value="${g(r.modules)}" inputmode="numeric"></label>
+        <label>DC capacity (kWp) <input data-f="dc_kwp" value="${g(r.dc_kwp)}" inputmode="decimal"><span class="hint" data-out="dc-how"></span></label>
+      </div>
+      <h4>Inverters</h4>
+      ${r.inverters.length ? html`<table class="subsys"><tbody>
+        ${r.inverters.map((x, j) => html`<tr data-inv="${j}">
+          <td><select data-inv-f="inverter_id" aria-label="Inverter">${inverterOptions(all.inverters, x.inverter_id, { blank: "Choose…" })}</select></td>
+          <td class="r nowrap">× <input data-inv-f="qty" value="${g(x.qty)}" inputmode="numeric" class="num" aria-label="How many"></td>
+          <td class="r num nowrap" data-out="kw"></td>
+          <td class="r"><button type="button" class="btn small" data-inv-del="${j}" title="Remove">×</button></td></tr>`)}
+      </tbody></table>` : ""}
+      <div class="btns"><button type="button" class="btn small" data-inv-add="${i}">Add inverter model</button>
+        ${!r.inverters.length ? html`<label class="inline small">or type the AC capacity (kW) <input data-f="ac_kw" value="${g(r.ac_kw)}" inputmode="decimal" class="num"></label>` : ""}</div>
+      <div data-out="ratio"></div>
+      <div data-out="suggest"></div>
+    </div>`)}`;
+    drawSystemFigures(read());
+  }
+
+  // only what changed is redrawn: a button replaced between press and release never gets the click
+  const setHtml = (el, markup) => { if (el.dataset.markup !== markup) { el.innerHTML = markup; el.dataset.markup = markup; } };
+  /** The worked-out parts of the sub-system cards and the whole-system summary (no redraw, so typing keeps its place). */
+  function drawSystemFigures(cur) {
+    const t = systemTotals(cur, all);
+    picks = t.rows.map((r) => (r.dc ? suggestInverters(r.dc, all.inverters) : []));
+    t.rows.forEach((r, i) => {
+      const card = subBox.querySelector(`[data-ss="${i}"]`);
+      if (!card) return;
+      const dcIn = card.querySelector('[data-f="dc_kwp"]');
+      dcIn.readOnly = !!(r.module && r.modules);
+      if (dcIn.readOnly) dcIn.value = g(+r.dc.toFixed(3));
+      card.querySelector('[data-out="dc-how"]').textContent = dcIn.readOnly ? `${r.modules} × ${g(r.module.wp)} Wp` : r.module ? "Enter the number of panels" : "";
+      card.querySelectorAll("[data-inv]").forEach((row, j) => {
+        const x = subsystems[i].inverters[j], inv = invById.get(x.inverter_id);
+        row.querySelector('[data-out="kw"]').textContent = inv && x.qty ? `${num(inv.ac_kw * x.qty, 1)} kW` : "";
+      });
+      setHtml(card.querySelector('[data-out="ratio"]'), r.dc && r.ac
+        ? html`<div class="flash ${FLASH_OF[ratioBand(r.ratio)]} spaced-top">${num(r.dc, 2)} kWp DC on ${num(r.ac, 1)} kW AC: DC/AC ratio <b>${ratioText(r.ratio)}</b>${ratioSays(r.ratio)}</div>`.toString()
+        : "");
+      const mine = subsystems[i].inverters;
+      const same = (c) => c.inverters.length === mine.length && c.inverters.every((x) => mine.some((y) => y.inverter_id === x.inverter_id && y.qty === x.qty));
+      setHtml(card.querySelector('[data-out="suggest"]'), (!r.dc ? html`<p class="small muted spaced-top">Inverter suggestions appear once the DC capacity is known.</p>`
+        : !all.inverters.length ? html``
+        : picks[i].length ? html`<div class="suggest spaced-top"><span class="small muted">Suggested inverters, fewest first:</span>
+          ${picks[i].map((c, k) => html`<button type="button" class="btn small ratio-${ratioBand(c.ratio)} ${same(c) ? "on" : ""}" data-pick="${i}:${k}">${c.label}<small>${num(c.ac, 0)} kW · DC/AC ${num(c.ratio, 2)}</small></button>`)}</div>`
+        : html`<p class="small missing-text spaced-top">No combination of up to two inverter models in the library gives a DC/AC ratio within ${DCAC_MIN}–${DCAC_MAX}.</p>`).toString());
+    });
+
+    const issues = systemIssues(cur, all), rep = cur.report_design;
+    main.querySelector("#system-summary").innerHTML = html`<div class="summary">
+      <div><span>DC capacity</span><b>${t.dc ? `${num(t.dc, 2)} kWp` : "—"}</b><small class="muted">${t.modules ? `${num(t.modules, 0)} PV modules` : ""}</small></div>
+      <div><span>AC capacity</span><b>${t.ac ? `${num(t.ac, 1)} kW` : "—"}</b><small class="muted">${t.inverterQty ? `${t.inverterQty} inverter${t.inverterQty === 1 ? "" : "s"}` : ""}</small></div>
+      <div><span>DC/AC ratio</span><b class="ratio-text-${ratioBand(t.ratio)}">${ratioText(t.ratio)}</b><small class="muted">limits ${DCAC_MIN}–${DCAC_MAX}</small></div>
+      <div><span>Sub-systems</span><b>${t.rows.length}</b><small class="muted">${t.rows.length > 1 || t.inverterModels.length > 1 ? "Breakdown slide included" : ""}</small></div>
+    </div>
+    ${issues.length ? html`<div class="flash warn">${issues.map((x) => html`<div>${x}</div>`)}</div>`
+      : t.dc && t.ac && [t.ratio, ...t.rows.map((r) => r.ratio)].some((r) => r > DCAC_NOTE + 1e-9)
+        ? html`<div class="flash warn">Every DC/AC ratio is within ${DCAC_MIN}–${DCAC_MAX}, but one is above ${DCAC_NOTE}: the design summary slide gets a footnote saying the offer can be resubmitted if the client isn't comfortable with it.</div>`
+      : t.dc && t.ac ? html`<div class="flash ok">Every DC/AC ratio is within ${DCAC_MIN}–${DCAC_MAX}.</div>` : ""}
+    ${rep?.modules && t.modules && rep.modules !== t.modules ? html`<div class="flash warn">The simulation report has ${num(rep.modules, 0)} PV modules; the sub-systems add up to ${num(t.modules, 0)}.</div>` : ""}`;
+  }
+
+  const subOf = (el) => subsystems[Number(el.closest("[data-ss]").dataset.ss)];
+  const wholeNum = (v) => { const n = Math.round(Number(v)); return String(v).trim() && Number.isFinite(n) && n > 0 ? n : null; };
+  const posNum = (v) => { const n = Number(v); return String(v).trim() && Number.isFinite(n) && n > 0 ? n : null; };
+  subBox.addEventListener("input", (e) => {
+    const el = e.target;
+    if (!el.closest("[data-ss]") || el.tagName === "SELECT") return;
+    const r = subOf(el);
+    if (el.dataset.f === "name" || el.dataset.f === "desc") r[el.dataset.f] = el.value;
+    else if (el.dataset.f === "modules") r.modules = wholeNum(el.value);
+    else if (el.dataset.f === "dc_kwp") r.dc_kwp = posNum(el.value);
+    else if (el.dataset.f === "ac_kw") r.ac_kw = posNum(el.value);
+    else if (el.dataset.f === "elevation_m") r.elevation_m = posNum(el.value);
+    else if (el.dataset.f === "tilt_deg" || el.dataset.f === "azimuth_deg") {
+      const n = Number(el.value);
+      r[el.dataset.f] = el.value.trim() && Number.isFinite(n) ? n : null;
+    }
+    else if (el.dataset.invF === "qty") r.inverters[Number(el.closest("[data-inv]").dataset.inv)].qty = wholeNum(el.value);
+  });
+  subBox.addEventListener("change", async (e) => {
+    const el = e.target;
+    if (el.tagName !== "SELECT" || !el.closest("[data-ss]")) return;
+    const r = subOf(el), id = Number(el.value) || null;
+    if (el.dataset.f === "installation_type") {
+      // a new design type is added on the spot and kept for later offers
+      if (el.value === "__new") {
+        const name = (window.prompt("New design type (e.g. Metal Sheet Roof):") || "").trim();
+        if (name && !designTypes.includes(name)) {
+          designTypes.push(name);
+          await db.setSetting("design_types", [...(await db.getSetting("design_types", [])), name]);
+        }
+        if (name) r.installation_type = name;
+      } else r.installation_type = el.value;
+      drawSubsystems();
+      preview();
+      return;
+    }
+    if (el.dataset.f === "module_id") r.module_id = id;
+    else if (el.dataset.invF === "inverter_id") r.inverters[Number(el.closest("[data-inv]").dataset.inv)].inverter_id = id;
+    drawSubsystems();
+  });
+  subBox.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.ssDel !== undefined) subsystems.splice(Number(b.dataset.ssDel), 1);
+    else if (b.dataset.invAdd !== undefined) subsystems[Number(b.dataset.invAdd)].inverters.push({ inverter_id: null, qty: 1 });
+    else if (b.dataset.invDel !== undefined) subOf(b).inverters.splice(Number(b.dataset.invDel), 1);
+    else if (b.dataset.pick) {
+      const [i, k] = b.dataset.pick.split(":").map(Number);
+      subsystems[i].inverters = picks[i][k].inverters.map((x) => ({ ...x }));
+      subsystems[i].ac_kw = null;
+    } else return;
+    drawSubsystems();
+    preview();
+  });
+  main.querySelector("#ss-add").addEventListener("click", () => {
+    subsystems.push(blankSub());
+    drawSubsystems();
+    preview();
+    subBox.querySelector(`[data-ss="${subsystems.length - 1}"] [data-f="name"]`)?.focus();
+  });
+  // ---- pictures
   function drawPics() {
-    main.querySelector("#pics").innerHTML = html`${IMAGE_KEYS.map(([key, label, hint]) => {
+    main.querySelector("#pics").innerHTML = html`${IMAGE_KEYS.map(([key, label, slide, hint]) => {
       const pic = pics[key];
       const src = pic ? pic.url || (pic.url = URL.createObjectURL(pic.blob)) : "";
+      const slot = SLOT_OF[key], corner = corners[slot] || "tl";
+      const logo = slot !== "site";
       return html`<div class="pic">
-        <div class="pic-frame">${src ? html`<img src="${src}" alt="">` : html`<span class="muted small">No picture</span>`}</div>
-        <b>${label}</b><span class="hint small muted">${hint}</span>
+        <div class="pic-frame">${src ? html`<img src="${src}" alt="">${logo ? html`<img class="logo-badge ${corner}" src="data/htc_logo.jpg" alt="HTC logo">` : ""}` : html`<span class="muted small">No picture</span>`}</div>
+        <b>${label} <span class="muted small">(${slide})</span></b><span class="hint small muted">${hint}</span>
         <div class="btns"><label class="btn small">Choose…<input type="file" accept="image/png,image/jpeg" data-pic="${key}" hidden></label>
-          ${pic ? html`<button type="button" class="btn small" data-clear="${key}">Remove</button>` : ""}</div>
+          ${pic ? html`<button type="button" class="btn small" data-clear="${key}">Remove</button>` : ""}
+          ${pic && logo ? html`<span class="corner-pick">${CORNERS.map(([c, arrow, name]) => html`<button type="button" class="btn small ${c === corner ? "on" : ""}" data-corner="${c}" data-slot="${slot}" title="Logo: ${name}">${arrow}</button>`)}</span>` : ""}</div>
       </div>`;
     })}`;
     for (const input of main.querySelectorAll("[data-pic]")) {
       input.addEventListener("change", async () => {
         const file = input.files[0];
         if (!file) return;
-        try { setPic(input.dataset.pic, { ...(await readImage(file)), name: file.name }); }
-        catch { toast(`${file.name} couldn't be read (PNG or JPG only).`, "error"); }
+        try {
+          const img = await readImage(file);
+          corners[SLOT_OF[input.dataset.pic]] = await cornerOf(img.blob);
+          setPic(input.dataset.pic, { ...img, name: file.name });
+        } catch { toast(`${file.name} couldn't be read (PNG or JPG only).`, "error"); }
       });
     }
     for (const b of main.querySelectorAll("[data-clear]")) b.addEventListener("click", () => setPic(b.dataset.clear, null));
+    for (const b of main.querySelectorAll("[data-corner]")) b.addEventListener("click", () => { corners[b.dataset.slot] = b.dataset.corner; drawPics(); });
   }
   function setPic(key, pic) {
     pics[key] = pic;
-    drawPics();
+    if (key === "client_logo_file_id") drawClientLogo();
+    else drawPics();
   }
-  const slotButtons = (attr, i) => html`${IMAGE_KEYS.map(([key]) => html`<button type="button" class="btn small" data-${attr}="${i}" data-slot="${key}">${SLOT_NAMES[key]}</button>`)}`;
 
-  // Helioscope reports: pictures only (the simulation and the shading report, usually)
-  const KIND_NAMES = { simulation: "Simulation report", shading: "Shading report", report: "Report" };
-  const SUGGESTED = { site: "offer_site_file_id", shadow: "offer_shadow_file_id" };
+  // ---- client logo (Essentials): PNG with a transparent background looks best on the cover
+  function drawClientLogo() {
+    const pic = pics.client_logo_file_id;
+    const src = pic ? pic.url || (pic.url = URL.createObjectURL(pic.blob)) : "";
+    const box = main.querySelector("#client-logo");
+    box.innerHTML = html`<div class="logo-frame">${src ? html`<img src="${src}" alt="Client logo">` : html`<span class="muted small">No logo</span>`}</div>
+      <div class="btns"><label class="btn small">Choose…<input type="file" accept="image/png,image/jpeg" id="client-logo-file" hidden></label>
+        ${pic ? html`<button type="button" class="btn small" id="client-logo-clear">Remove</button>` : ""}</div>`;
+    box.querySelector("#client-logo-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try { setPic("client_logo_file_id", { ...(await readImage(file)), name: file.name }); }
+      catch { toast(`${file.name} couldn't be read (PNG or JPG only).`, "error"); }
+    });
+    box.querySelector("#client-logo-clear")?.addEventListener("click", () => setPic("client_logo_file_id", null));
+  }
+  const slotButtons = (attr, i) => html`${IMAGE_KEYS.map(([key]) => html`<button type="button" class="btn small" data-${attr}="${i}" data-slot="${key}">${SLOT_SHORT[key]}</button>`)}`;
+  const usePic = (key, im) => {
+    if (im.corner) corners[SLOT_OF[key]] = im.corner;
+    setPic(key, { blob: im.blob, width: im.width, height: im.height, name: `${im.kind}-p${im.page}.jpg` });
+  };
+
+  // ---- Helioscope reports
   function drawReport() {
     const out = main.querySelector("#report-out");
     if (!report.pages.length) { out.innerHTML = ""; return; }
     out.innerHTML = html`
-      ${report.images.length ? html`<h3>Pictures in the reports</h3><p class="small muted">Click a slot under a picture to use it.</p>
+      <details class="spaced-top"><summary class="small">Other pictures and pages in the reports</summary>
+      ${report.images.length ? html`<h3>Pictures</h3><p class="small muted">Click a slot under a picture to use it.</p>
       <div class="thumbs">${report.images.map((im, i) => html`<div class="thumb"><img src="${im.url}" alt=""><span class="small muted">${KIND_NAMES[im.kind]}, page ${im.page}</span><div class="btns">${slotButtons("img", i)}</div></div>`)}</div>` : ""}
-      <h3>Pages</h3><p class="small muted">Crop a page for a picture that isn't listed above, e.g. a 3D angle view for the structure slide.</p>
-      <div class="thumbs">${report.pages.map((pg, i) => html`<div class="thumb"><img src="${pg.url}" alt=""><span class="small muted">${KIND_NAMES[pg.kind]}, page ${pg.page}</span><div class="btns"><button type="button" class="btn small" data-crop="${i}">Crop…</button></div></div>`)}</div>`;
+      <h3>Pages</h3><p class="small muted">Crop a page for anything not listed above.</p>
+      <div class="thumbs">${report.pages.map((pg, i) => html`<div class="thumb"><img src="${pg.url}" alt=""><span class="small muted">${KIND_NAMES[pg.kind]}, page ${pg.page}</span><div class="btns"><button type="button" class="btn small" data-crop="${i}">Crop…</button></div></div>`)}</div>
+      </details>`;
     for (const b of out.querySelectorAll("[data-img]")) {
-      b.addEventListener("click", () => { const im = report.images[Number(b.dataset.img)]; setPic(b.dataset.slot, { ...im, url: null, name: `${im.kind}-p${im.page}.jpg` }); toast("Picture set."); });
+      b.addEventListener("click", () => { usePic(b.dataset.slot, report.images[Number(b.dataset.img)]); toast("Picture set."); });
     }
     for (const b of out.querySelectorAll("[data-crop]")) b.addEventListener("click", () => openCrop(report.pages[Number(b.dataset.crop)]));
   }
 
-  main.querySelector("#report").addEventListener("change", async (e) => {
-    const files = [...e.target.files];
-    if (!files.length) return;
-    const out = main.querySelector("#report-out");
-    out.innerHTML = html`<div class="small muted spaced-top" id="report-progress">Opening the reports…</div>`;
+  // each report has its own box; the figures and pictures come from whichever are loaded
+  const loaded = { simulation: null, shading: null };
+  for (const input of main.querySelectorAll("[data-report]")) {
+    input.addEventListener("change", async () => {
+      const file = input.files[0], slot = input.dataset.report;
+      if (!file) return;
+      const status = main.querySelector(`[data-report-status="${slot}"]`);
+      status.textContent = "Opening…";
+      try {
+        const { readReport } = await import("../offer/helioscope.js");
+        const r = await readReport(file, (msg) => { status.textContent = msg; });
+        loaded[slot] = r;
+        status.innerHTML = r.kind === slot || r.kind === "report"
+          ? html`<span class="ok-text">${file.name}</span>`.toString()
+          : html`<span class="missing-text">${file.name} looks like the ${r.kind} report; it's used anyway</span>`.toString();
+        await applyReports();
+      } catch (err) {
+        console.error(err);
+        status.innerHTML = html`<span class="missing-text">Couldn't read ${file.name}: ${err.message || err}</span>`.toString();
+      }
+    });
+  }
+
+  async function applyReports() {
+    const found = main.querySelector("#report-found");
     try {
-      const { readReport } = await import("../offer/helioscope.js");
+      const { parseReport, monthsFromBars, monthsAgree, tableNote } = await import("../offer/helioscope.js");
+      for (const x of [...report.images, ...report.pages]) URL.revokeObjectURL(x.url);
       report.images = []; report.pages = [];
-      const set = [];
-      for (const file of files) {
-        const r = await readReport(file, (msg) => { const el = main.querySelector("#report-progress"); if (el) el.textContent = msg; });
+      let text = "", bars = null, table = null;
+      for (const r of [loaded.simulation, loaded.shading].filter(Boolean)) {
         report.images.push(...r.images.map((im) => ({ ...im, kind: r.kind, url: URL.createObjectURL(im.blob) })));
         report.pages.push(...r.pages.map((pg) => ({ ...pg, kind: r.kind, url: URL.createObjectURL(pg.blob) })));
+        text += r.text + "\n";
+        bars ||= r.bars;
+        table ||= r.table;
       }
-      // fill empty slots with the usual pictures: the detailed layout and the shading heatmap
-      for (const [slot, key] of Object.entries(SUGGESTED)) {
-        const im = report.images.find((x) => x.slot === slot);
-        if (im && !pics[key]) { pics[key] = { ...im, url: null, name: `${im.kind}-p${im.page}.jpg` }; set.push(SLOT_NAMES[key].toLowerCase()); }
+      const f = parseReport(text, { modules: all.modules, inverters: all.inverters });
+      // monthly: the AC Power row of the shading report's Solar Access by Month table (as text, or
+      // read off the scanned page). The production report's bar chart is measured only when no
+      // shading report is loaded; with one loaded and its table unreadable, the months are left to type.
+      const exact = f.monthly_kwh || (monthsAgree(table) ? table : null);
+      const monthly = exact || (loaded.shading ? null : monthsFromBars(bars, f.annual_gen_kwh));
+      const monthsNote = exact ? tableNote(exact, f.annual_gen_kwh)
+        : loaded.shading ? "The Solar Access by Month table in the shading report couldn't be read. Type the 12 AC Power (kWh) figures under \"Change the figures\"." : "";
+      // the reports' figures replace what's in the form (all can be edited afterwards)
+      const filled = [];
+      const put = (name, value, label) => { if (value !== undefined && value !== null) { setField(name, value); filled.push(label); } };
+      // the design in the report: one sub-system, unless the system has already been split
+      if (f.module_count || f.dc_kwp) o.report_design = { modules: f.module_count || null, dc_kwp: f.dc_kwp || null, ac_kw: f.ac_kw || null };
+      if (subsystems.length <= 1 && (f.module_count || f.dc_kwp || f.inverter_qty)) {
+        const r = subsystems[0] || blankSub();
+        Object.assign(r, {
+          module_id: f.module_id || null, modules: f.module_id ? f.module_count || null : null, dc_kwp: f.module_id ? null : f.dc_kwp || null,
+          inverters: f.inverter_id && f.inverter_qty ? [{ inverter_id: f.inverter_id, qty: f.inverter_qty }] : [],
+          ac_kw: f.inverter_id ? null : f.ac_kw || null,
+        });
+        subsystems.splice(0, subsystems.length, r);
+        filled.push(...[f.module_count && `${f.module_count} panels`, f.inverter_qty && `${f.inverter_qty} × ${f.inverter_model}`].filter(Boolean));
+        drawSubsystems();
       }
+      const kept = subsystems.length > 1 ? " Your sub-systems were kept as entered and are checked against the report's panel count." : "";
+      put("annual_gen_kwh", f.annual_gen_kwh, `${num(f.annual_gen_kwh, 0)} kWh a year`);
+      put("specific_yield", f.specific_yield, `${num(f.specific_yield, 1)} kWh/kWp`);
+      put("pr_pct", f.pr_pct, `PR ${num(f.pr_pct, 1)}%`);
+      if (monthly) {
+        o.monthly_kwh = monthly.map((x) => Math.round(x * 10) / 10);
+        o.monthly_source = exact ? "table" : "chart";
+        form.elements.monthly_text.value = o.monthly_kwh.map((x) => Math.round(x)).join(" ");
+        showMonths(o.monthly_kwh);
+        filled.push(exact ? "monthly generation (Solar Access by Month table)" : "monthly generation (read off the chart)");
+      }
+      else if (o.monthly_source === "chart") {
+        // figures measured off the chart earlier give way to the shading report's table, even an unreadable one
+        o.monthly_kwh = null; o.monthly_source = null;
+        form.elements.monthly_text.value = "";
+        showMonths(null);
+      }
+      put("shading_loss_pct", f.shading_loss_pct, `${num(f.shading_loss_pct, 1)}% shading losses`);
+      if (f.annual_gen_kwh) o.energy_source = "helioscope";
+      // tilt, azimuth and design type of the main field segment, when the system is one sub-system
+      if (subsystems.length === 1) {
+        const r = subsystems[0];
+        if (f.tilt_deg !== undefined) { r.tilt_deg = f.tilt_deg; filled.push("tilt"); }
+        if (f.azimuth_deg !== undefined) { r.azimuth_deg = f.azimuth_deg; filled.push("azimuth"); }
+        if (/carport/i.test(f.racking || "")) { r.installation_type = "Carpark"; filled.push("design type"); }
+        drawSubsystems();
+      }
+      // the usual pictures go on their slides when those are empty
+      const set = [];
+      for (const slot of ["site", "shadow", "structure", "structure2"]) {
+        const im = report.images.find((x) => x.slot === slot), key = FIELD_OF[slot];
+        if (im && !pics[key]) { usePic(key, im); set.push(SLOT_SHORT[key].toLowerCase()); }
+      }
+      const notInLibrary = [f.module_model && !f.module_id && `module ${f.module_model}`, f.inverter_model && !f.inverter_id && `inverter ${f.inverter_model}`].filter(Boolean);
+      found.innerHTML = html`
+        <div class="flash ${filled.length ? "ok" : "warn"} spaced-top">${filled.length ? `Filled in from the reports: ${filled.join(", ")}.` : "No system figures found in these reports; fill them in by hand."}
+          ${set.length ? ` Pictures: ${set.join(", ")}.` : ""}${kept}</div>
+        ${notInLibrary.length ? html`<div class="flash warn">The ${notInLibrary.join(" and ")} named in the report isn't in the equipment library, so the capacity was typed in instead. <a href="#/library">Add it to the library</a> to get its spec slide.</div>` : ""}
+        ${monthsNote ? html`<div class="flash warn">${monthsNote}</div>` : ""}
+        ${f.shading_loss_pct > SHADING_LIMIT_PCT ? html`<div class="flash warn">Shading losses in the report are ${num(f.shading_loss_pct, 1)}%, above ${SHADING_LIMIT_PCT}%.</div>` : ""}`;
       drawPics();
       drawReport();
-      if (set.length) toast(`Set the ${set.join(" and ")} picture${set.length > 1 ? "s" : ""} from the reports. Change them below if needed.`);
+      preview();
     } catch (err) {
       console.error(err);
-      out.innerHTML = html`<div class="flash error spaced-top">Couldn't read that PDF: ${err.message || err}</div>`;
+      found.innerHTML = html`<div class="flash error spaced-top">Couldn't use the reports: ${err.message || err}</div>`;
     }
-  });
+  }
 
   // crop dialog: drag a rectangle on a page, then pick the slot
   function openCrop(pg) {
@@ -403,18 +827,101 @@ export async function quick(main, { params, query }) {
         const k = pg.width / img.getBoundingClientRect().width;
         const r = rect && rect.w > 8 && rect.h > 8 ? { x: rect.x * k, y: rect.y * k, w: rect.w * k, h: rect.h * k } : { x: 0, y: 0, w: pg.width, h: pg.height };
         const { crop } = await import("../offer/helioscope.js");
-        setPic(b.dataset.slot, { ...(await crop(pg.blob, r)), name: `${pg.kind}-p${pg.page}-crop.jpg` });
+        usePic(b.dataset.slot, { ...(await crop(pg.blob, r)), kind: pg.kind, page: pg.page });
         box.hidden = true; box.innerHTML = "";
         toast("Picture set.");
       });
     }
   }
 
+  // ---- schedule (Gantt)
+  const gantt = main.querySelector("#gantt");
+  const months = Array.from({ length: MAX_WEEKS / 4 }, (_, i) => i + 1);
+  function drawGantt() {
+    gantt.innerHTML = html`
+      <div class="g-row g-head"><span>#</span><span>Activity</span><span>Start</span><span>Weeks</span>
+        <div class="g-weeks">${months.map((m) => html`<b style="grid-column: span 4">Month ${m}</b>`)}</div><span></span></div>
+      ${schedule.map((a, i) => html`<div class="g-row" data-row="${i}"><span>${i + 1}</span>
+        <input data-f="name" value="${a.name}" aria-label="Activity">
+        <input data-f="start" value="${a.start}" inputmode="numeric" aria-label="Start week">
+        <input data-f="weeks" value="${a.weeks}" inputmode="numeric" aria-label="Weeks">
+        <div class="g-weeks" data-cells="${i}">${raw(cells(a))}</div>
+        <button type="button" class="btn small" data-del="${i}" title="Remove this activity">×</button></div>`)}`;
+  }
+  function cells(a) {
+    let s = "";
+    const end = a.start + a.weeks - 1;
+    for (let w = 1; w <= MAX_WEEKS; w++) {
+      const on = a.weeks > 0 && w >= a.start && w <= end;
+      s += `<i data-w="${w}" class="${on ? `on${w === a.start ? " s" : ""}${w === end ? " e" : ""}` : ""}" title="Week ${w}"></i>`;
+    }
+    return s;
+  }
+  const redrawRow = (i) => {
+    const row = gantt.querySelector(`[data-row="${i}"]`);
+    row.querySelector("[data-cells]").innerHTML = cells(schedule[i]);
+    row.querySelector('[data-f="start"]').value = schedule[i].start;
+    row.querySelector('[data-f="weeks"]').value = schedule[i].weeks;
+  };
+  gantt.addEventListener("input", (e) => {
+    const row = e.target.closest("[data-row]");
+    if (!row || !e.target.dataset.f) return;
+    const a = schedule[Number(row.dataset.row)], f = e.target.dataset.f;
+    if (f === "name") a.name = e.target.value;
+    else {
+      const v = Math.round(Number(e.target.value));
+      if (!Number.isFinite(v)) return;
+      if (f === "start") a.start = Math.min(MAX_WEEKS, Math.max(1, v));
+      else a.weeks = Math.min(MAX_WEEKS - a.start + 1, Math.max(0, v));
+      row.querySelector("[data-cells]").innerHTML = cells(a);
+    }
+  });
+  gantt.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-del]");
+    if (!del) return;
+    schedule.splice(Number(del.dataset.del), 1);
+    drawGantt();
+  });
+  let drag = null;
+  gantt.addEventListener("pointerdown", (e) => {
+    const cell = e.target.closest("[data-w]");
+    if (!cell) return;
+    const i = Number(cell.closest("[data-row]").dataset.row);
+    drag = { i, from: Number(cell.dataset.w) };
+    schedule[i].start = drag.from; schedule[i].weeks = 1;
+    redrawRow(i);
+    e.preventDefault();
+  });
+  gantt.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const cell = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(`[data-cells="${drag.i}"] [data-w]`);
+    if (!cell) return;
+    const w = Number(cell.dataset.w), a = schedule[drag.i];
+    a.start = Math.min(drag.from, w); a.weeks = Math.abs(w - drag.from) + 1;
+    redrawRow(drag.i);
+  });
+  window.addEventListener("pointerup", () => { drag = null; });
+  main.querySelector("#sched-add").addEventListener("click", () => {
+    const end = Math.max(0, ...schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0)));
+    const start = Math.min(MAX_WEEKS, end + 1);
+    schedule.push({ name: "New activity", start, weeks: Math.min(2, MAX_WEEKS - start + 1) });
+    drawGantt();
+    gantt.querySelector(`[data-row="${schedule.length - 1}"] [data-f="name"]`)?.select();
+  });
+  main.querySelector("#sched-reset").addEventListener("click", () => {
+    schedule.splice(0, schedule.length, ...DEFAULT_SCHEDULE.map((a) => ({ name: a.name, start: a.start, weeks: a.weeks })));
+    drawGantt();
+  });
+
+  form.elements.reference_code.addEventListener("input", (e) => { codeEdited = e.target.value.trim() !== ""; });
+
   async function save() {
     const cur = read();
-    if (cur.monthly_raw_bad) { toast("Monthly generation needs exactly 12 numbers (Jan to Dec). Nothing was saved.", "error"); return null; }
-    delete cur.monthly_raw_bad;
-    for (const [key] of IMAGE_KEYS) {
+    if (!cur.reference_code) cur.reference_code = suggestCode(cur.client_name);
+    // whole-system figures kept on the record for the offers list
+    const t = systemTotals(cur, all);
+    Object.assign(cur, { dc_kwp: t.dc, ac_kw: t.ac });
+    for (const key of PIC_FIELDS) {
       const pic = pics[key];
       if (pic && !pic.id) {
         const fid = await db.putFile(pic.blob, pic.name || "picture.jpg", { width: pic.width, height: pic.height, kind: "offer" });
@@ -429,6 +936,27 @@ export async function quick(main, { params, query }) {
     return o;
   }
 
+  const monthInputs = [...main.querySelectorAll("[data-month]")];
+  function showMonths(vals) { monthInputs.forEach((el, i) => { el.value = vals ? Math.round(vals[i]) : ""; }); }
+  function monthsTyped() {
+    const raw = monthInputs.map((el) => el.value.trim());
+    const hint = main.querySelector("#monthly-hint");
+    const vals = raw.every(Boolean) ? parseMonthly(raw.join(" ")) : null;
+    form.elements.monthly_text.value = vals ? raw.join(" ") : "";
+    if (vals) { o.monthly_kwh = vals; o.monthly_source = "typed"; hint.textContent = `Total ${num(vals.reduce((a, b) => a + b, 0), 0)} kWh`; }
+    else hint.textContent = raw.some(Boolean) ? `Still needs ${MONTHS.filter((m, i) => !raw[i]).join(", ")}` : "";
+  }
+  for (const el of monthInputs) {
+    el.addEventListener("input", monthsTyped);
+    el.addEventListener("paste", (e) => {
+      const figs = parseMonthly(e.clipboardData.getData("text"));
+      if (!figs) return;
+      e.preventDefault();
+      showMonths(figs);
+      monthsTyped();
+      preview();
+    });
+  }
   form.addEventListener("input", preview);
   form.addEventListener("change", preview);
   form.addEventListener("submit", (e) => e.preventDefault());
@@ -438,7 +966,7 @@ export async function quick(main, { params, query }) {
     if (!params.id) go(`#/offers/quick/${o.id}`);
   }));
   main.querySelector("#deck").addEventListener("click", (e) => busy(e.target, async () => {
-    const missing = quickMissing(read());
+    const missing = quickMissing(read(), all);
     if (missing.length && !window.confirm(`Still needs: ${missing.join(", ")}. Make the deck anyway, with those parts blank?`)) return;
     if (!(await save())) return;
     const { blob, filename } = await generateOffer(toProject(o, all));
@@ -446,12 +974,15 @@ export async function quick(main, { params, query }) {
     if (!params.id) history.replaceState(null, "", `#/offers/quick/${o.id}`);
   }));
   main.querySelector("#delete")?.addEventListener("click", async () => {
-    for (const [key] of IMAGE_KEYS) await db.delFile(o[key]);
+    for (const key of PIC_FIELDS) await db.delFile(o[key]);
     await db.del("offers", o.id);
     toast("Offer deleted.");
     go("#/offers");
   });
 
   drawPics();
+  drawClientLogo();
+  drawGantt();
+  drawSubsystems();
   preview();
 }

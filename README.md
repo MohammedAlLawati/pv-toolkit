@@ -49,6 +49,27 @@ A private web app for solar PV work: clients, projects, authority paperwork, and
   MC4 Evo2), connection limit (approved load / spare transformer capacity), cable runs.
 - The engine is in `app/sizing/` (`engine.py` calculations, `rules.py` parameters and rules).
 
+## What Phase 3 adds: yield simulation and report (static app, `web/`)
+
+- **Yield page per project** (Sizing → *Yield simulation*, or *Yield simulation & reports* in the menu).
+- **Weather:** a PVGIS typical year for the site. The page links to the PVGIS download for the
+  project's coordinates; drop the saved file back in (PVGIS JSON or CSV, or any EPW file).
+  PVGIS doesn't allow web pages to fetch it directly. The weather is kept per project, and can be
+  copied from a nearby project.
+- **Model, hour by hour:** NOAA sun position, Perez sky diffuse, albedo, near shading %, ASHRAE
+  IAM, soiling, optional bifacial rear side, PVsyst thermal model, low-irradiance curve and the
+  module's Pmax coefficient, quality/LID/mismatch, DC and AC wiring (taken from the sizing page's
+  cable drops when entered), PVWatts inverter curve from the European efficiency with clipping at
+  rated AC, transformer and unavailability. Every loss is editable and saved with the project.
+- **Results:** energy, specific yield, PR, a monthly table (PVsyst's columns), a monthly chart and a
+  loss diagram. *Save and use for the offer* writes `annual_gen_kwh` and `monthly_kwh` to the
+  project, which the offer deck reads.
+- **Report:** a three-page PVsyst-style report to print or save as PDF, with the letterhead if one
+  is uploaded. It's blocked while a hard rule fails or can't be checked.
+- **Checks:** `web/tests/yield.test.mjs` compares the sun position, Perez transposition, IAM, cell
+  temperature and inverter model with pvlib (`tools/make_yield_fixture.py` makes the fixture).
+- Code: `web/js/yield/` (`weather.js`, `solar.js`, `model.js`) and `web/js/pages/yield.js`.
+
 ## Project layout
 
 ```

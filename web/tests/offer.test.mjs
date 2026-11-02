@@ -13,6 +13,7 @@ const { renderPptx } = await import("../js/offer/pptx.js");
 const { buildOfferValues, cashFlow, parseMonthly } = await import("../js/offer/values.js");
 
 const template = readFileSync(new URL("../templates/offer_deck.pptx", import.meta.url));
+const dcKwpOf = (p) => (p.module.wp * p.module_count) / 1000;
 const base = JSON.parse(readFileSync(new URL("./fixtures/docgen_cases.json", import.meta.url)))[0].project;
 
 async function deck(p, images = {}) {
@@ -108,28 +109,108 @@ test("environmental equivalents use the EPA Calc spreadsheet factors", () => {
   assert.equal(values.Seedlings, "70,524");
 });
 
-test("quick offer: capacities, price and a client name make a whole deck", async () => {
-  const { toProject, annualKwh, quickMissing } = await import("../js/offer/quick.js");
+test("quick offer: module × count, price per kWp and a client name make a whole deck", async () => {
+  const { toProject, annualKwh, quickMissing, suggestCode, DEFAULT_SCHEDULE } = await import("../js/offer/quick.js");
   const module = { ...base.module, id: 7 }, inverter = { ...base.inverter, id: 9 };
   const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, inverter]]), client: new Map() };
-  const o = { client_name: "Al Noor Trading", dc_kwp: 148.8, ac_kw: 125, subtotal_omr: 52000, module_id: 7, inverter_id: 9,
+  const o = { client_name: "Al Noor Trading", price_per_kwp: 350, module_id: 7, module_count: 240, inverter_id: 9, inverter_qty: 1,
               tariff_bz: 32, degradation_pct: 0.65, specific_yield: 1650 };
-  assert.deepEqual(quickMissing(o), []);
-  assert.deepEqual(quickMissing({ ...o, subtotal_omr: null, client_name: "" }), ["Client name", "Price"]);
-  assert.equal(annualKwh(o).kwh, 148.8 * 1650);
-  assert.equal(annualKwh({ ...o, annual_gen_kwh: 250000 }).source, "annual");
+  const dc = (module.wp * 240) / 1000, ac = inverter.ac_kw;
+  assert.deepEqual(quickMissing(o, lookup), []);
+  assert.deepEqual(quickMissing({ ...o, price_per_kwp: null, client_name: "" }, lookup), ["Client name", "Price per kWp"]);
+  assert.deepEqual(quickMissing({ ...o, module_count: null }, lookup), ["DC capacity (PV module and number of panels)"]);
+  assert.equal(annualKwh(o, dc).kwh, dc * 1650);
+  assert.equal(annualKwh({ ...o, annual_gen_kwh: 250000 }, dc).source, "annual");
 
   const p = toProject(o, lookup);
-  assert.equal(p.module_count, Math.round(148800 / module.wp));
-  assert.equal(p.inverter_qty, Math.max(1, Math.round(125 / inverter.ac_kw)));
+  assert.equal(p.dc_kwp, dc);
+  assert.equal(p.ac_kw, ac);
+  assert.equal(p.subtotal_omr, Math.round(350 * dc * 1000) / 1000);
+  assert.equal(p.reference_code, "ANT");
+  assert.deepEqual(p.schedule, DEFAULT_SCHEDULE);
+  // a typed capacity stands when no module is chosen
+  assert.equal(toProject({ ...o, module_id: null, dc_kwp: 148.8 }, lookup).dc_kwp, 148.8);
+
   const { text, values } = await deck(p);
-  assert.equal(values.DCCapacity, "148.8");     // stated capacity, not module count × Wp
-  assert.equal(values.ACCapacity, "125");
   assert.equal(values.Name, "Al Noor Trading");
-  assert.equal(values.AnnualGenKWh, "245,520");
   assert.ok(values.PaybackText && values.ROI && values.CO2Tonnes);
   assert.ok(!/\{\{\w+\}\}/.test(text), "no placeholder left unfilled");
   assert.ok(text.includes("Al Noor Trading"));
+
+  assert.equal(suggestCode("Petroleum Development Oman"), "PDO");
+  assert.equal(suggestCode("Autism Disorder Center"), "ADC");
+  assert.equal(suggestCode("Bank of the Muscat SAOG"), "BM");
+});
+
+test("shading above 3% is called out on slide 16", async () => {
+  const { shadingText } = await import("../js/offer/values.js");
+  assert.ok(!/higher than/.test(shadingText(0.2).join(" ")));
+  assert.match(shadingText(4.5)[0], /4\.5%.*higher than the 3% design limit/);
+  const img = { bytes: readFileSync(new URL("../data/htc_logo.jpg", import.meta.url)), ext: "jpeg", width: 400, height: 300 };
+  const { text } = await deck({ ...base, shading_loss_pct: 4.5 }, { shadow: img });
+  assert.ok(text.includes("higher than the 3% design limit"));
+});
+
+test("the HTC logo sits inside the chosen corner of each 3D view", async () => {
+  const img = { bytes: readFileSync(new URL("../data/htc_logo.jpg", import.meta.url)), ext: "jpeg", width: 1000, height: 700 };
+  const { zip } = await deck(base, { structure: { ...img, logoCorner: "br" }, structure2: { ...img, logoCorner: "tl" } });
+  const files = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+  let xml = "";
+  for (const f of files) { const x = await zip.file(f).async("string"); if (x.includes('name="Image structure2"')) xml = x; }
+  const box = (name) => {
+    const pic = xml.split("<p:pic>").find((p) => p.includes(`name="${name}"`));
+    const [, x, y] = pic.match(/<a:off x="(\d+)" y="(\d+)"/), [, w, h] = pic.match(/<a:xfrm>.*?<a:ext cx="(\d+)" cy="(\d+)"/);
+    return { x: +x, y: +y, w: +w, h: +h };
+  };
+  const pairs = [["Image structure", "Picture 10", "br"], ["Image structure2", "Picture 1", "tl"]];
+  for (const [image, logo, corner] of pairs) {
+    const a = box(image), b = box(logo);
+    assert.ok(b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h, `${logo} inside ${image}`);
+    assert.ok(b.w <= a.w * 0.3 + 1);
+    if (corner === "br") assert.ok(b.x > a.x + a.w / 2 && b.y > a.y + a.h / 2);
+    else assert.ok(b.x < a.x + a.w / 2 && b.y < a.y + a.h / 2);
+  }
+});
+
+test("schedule from the Gantt chart reaches the deck", async () => {
+  const { DEFAULT_SCHEDULE } = await import("../js/offer/quick.js");
+  const short = DEFAULT_SCHEDULE.map((a) => ({ ...a, start: 1, weeks: 3 }));
+  short[5] = { ...short[5], name: "Install everything", start: 3, weeks: 5 };
+  const { values, months, flow } = buildOfferValues(base, new Date("2026-03-05T00:00:00"));
+  const out = await renderPptx(template, { values, months, flow, images: {}, schedule: short,
+    moduleModel: base.module.model, inverterModel: base.inverter.model });
+  const zip = await JSZip.loadAsync(out.bytes);
+  let text = "";
+  for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) text += await zip.file(f).async("string");
+  assert.ok(text.includes("Install everything"));
+  assert.ok(!text.includes("All Installation (Mechanical"));
+  assert.ok(text.includes(">W20<") && !text.includes(">W21<"), "slides for weeks past the schedule are dropped");
+});
+
+test("Helioscope report figures", async () => {
+  const { parseReport } = await import("../js/offer/helioscope.js");
+  // text as pdf.js reads it from a Helioscope (Aurora) annual production report
+  const sim = `Design Design 1, 5L, Jinko 720Wp Module DC Nameplate 579.60 kW Inverter AC Nameplate 600.00 kW Load Ratio: 0.97
+    Annual Production 986.8 MWh Performance Ratio 77.3% kWh/kWp 1,702.6 Sources of System Loss Shading Shading: 0.2%
+    Component Name Count Inverters SG150CX (Sungrow) 4 (600.00 kW) Strings 10 AWG (Copper) 43 (3,436.1 m)
+    Module Jinko Solar, JKM720N-66HL5- BDV-Z6-EN (720W) 805 (579.60 kW) Components
+    Description Racking Orientation Tilt Azimuth Intrarow Spacing Frame Size Frames Modules Power
+    FS-1 Flush Mount Landscape (Horizontal) 5° 289.1991° 0.0 m 1x1 60 60 43.20 kW
+    FS-3 Flush Mount Landscape (Horizontal) 5° 109.049515° 0.0 m 1x1 435 435 313.20 kW Field Segments`;
+  const lib = { modules: [{ id: 1, model: "JKM720N-66HL5-BDV", wp: 720 }], inverters: [{ id: 2, model: "SG150CX", ac_kw: 150 }] };
+  const r = parseReport(sim, lib);
+  assert.deepEqual([r.dc_kwp, r.ac_kw, r.annual_gen_kwh, r.specific_yield, r.shading_loss_pct], [579.6, 600, 986800, 1702.6, 0.2]);
+  assert.deepEqual([r.module_count, r.module_wp, r.inverter_qty, r.module_id, r.inverter_id], [805, 720, 4, 1, 2]);
+  assert.deepEqual([r.tilt_deg, r.azimuth_deg, r.racking], [5, 109, "Flush Mount"]);
+  assert.equal(r.pr_pct, 77.3);
+  // the components table read out of order: the count lands inside the wrapped model name
+  const shuffled = sim.replace("Module Jinko Solar, JKM720N-66HL5- BDV-Z6-EN (720W) 805 (579.60 kW)", "Module Jinko Solar, JKM720N-66HL5- 805 (579.60 BDV-Z6-EN (720W) kW)");
+  const r2 = parseReport(shuffled, lib);
+  assert.deepEqual([r2.module_count, r2.module_wp, r2.module_id], [805, 720, 1]);
+  // no components table: the field segments' modules are added up
+  assert.equal(parseReport(sim.replace(/Component Name[\s\S]*?Components/, "")).module_count, 60 + 435);
+  const shade = "Totals, weighted by kWp 805 579.6 kWp 2,199.5kWh/m 986.8 MWh 91.4% 96.5% 91.2%";
+  assert.equal(parseReport(shade).shading_loss_pct, 3.5);
 });
 
 test("Helioscope pictures: which slot they suit", async () => {
@@ -139,4 +220,249 @@ test("Helioscope pictures: which slot they suit", async () => {
   assert.equal(suggestSlot(shading, "Solar Access by Month Southeastern Angle"), null);
   assert.equal(suggestSlot(sim, "Detailed Layout2"), "site");
   assert.equal(suggestSlot(sim, "Report Project Location System Metrics"), null);
+});
+
+test("degradation follows the module datasheet's linear warranty", async () => {
+  const { toProject } = await import("../js/offer/quick.js");
+  const module = { ...base.module, degradation_first_pct: 1, degradation_annual_pct: 0.4 };
+  const { values } = buildOfferValues({ ...base, module }, new Date("2026-03-05T00:00:00"));
+  assert.equal(values.Y1L, "0.0%");
+  assert.equal(values.Y2L, "1.0%");
+  assert.equal(values.Y25L, "10.2%");
+  assert.equal(values.Degradation, "1% in the first year and 0.4");
+  // a library entry loaded before the figures were recorded gets them from the built-in data
+  const old = { id: 3, make: "Jinko Solar", model: "JKM720N-66HL5-BDV", wp: 720 };
+  const p = toProject({ client_name: "X", module_id: 3, module_count: 10 }, { module: new Map([[3, old]]), inverter: new Map() });
+  assert.equal(p.module.degradation_first_pct, 1);
+  assert.equal(p.module.degradation_annual_pct, 0.4);
+});
+
+test("inverter suggestions: DC/AC within 0.8-1.25, fewest inverters, no inverter that isn't needed", async () => {
+  const { suggestInverters } = await import("../js/offer/quick.js");
+  const lib = [5, 10, 20, 25, 30, 50, 125, 150].map((kw, i) => ({ id: i + 1, model: `SG${kw}`, ac_kw: kw }));
+  const best = suggestInverters(280, lib);
+  // one inverter can't reach 280 / 1.25 = 224 kW; two can: 150 + 125 = 275 kW is closest to 1.0
+  assert.equal(best[0].label, "1 × SG150 + 1 × SG125");
+  assert.equal(best[0].count, 2);
+  assert.ok(Math.abs(best[0].ratio - 280 / 275) < 1e-9);
+  for (const c of best) {
+    assert.ok(c.ratio >= 0.8 && c.ratio <= 1.25, c.label);
+    assert.ok(c.count <= 3, c.label);
+    // dropping the smallest inverter would break the lower AC limit
+    const smallest = Math.min(...c.inverters.map((x) => lib.find((l) => l.id === x.inverter_id).ac_kw));
+    assert.ok(c.ac - smallest < 280 / 1.25, c.label);
+  }
+  assert.deepEqual(suggestInverters(52, lib).slice(0, 2).map((c) => c.label), ["1 × SG50", "2 × SG25"]);
+  assert.deepEqual(suggestInverters(null, lib), []);
+});
+
+test("sub-systems: own module and inverter mix, ratio checks, and the breakdown slide", async () => {
+  const { toProject, systemIssues, systemTotals, systemsOf } = await import("../js/offer/quick.js");
+  const module = { ...base.module, id: 7, wp: 720 };
+  const sg150 = { ...base.inverter, id: 9, model: "SG150CX", ac_kw: 150 }, sg125 = { ...base.inverter, id: 10, model: "SG125CX-P2", ac_kw: 125 };
+  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, sg150], [10, sg125]]), client: new Map() };
+  const o = { client_name: "ADC", price_per_kwp: 300, subsystems: [
+    { name: "POC 1", desc: "East roof", installation_type: "Elevated Flat Roof", elevation_m: 2.5, tilt_deg: 5, azimuth_deg: 109,
+      module_id: 7, modules: 435, inverters: [{ inverter_id: 9, qty: 1 }, { inverter_id: 10, qty: 1 }] },
+    { name: "POC 2", desc: "West roofs", installation_type: "Carpark", elevation_m: 3, tilt_deg: 10, azimuth_deg: 289,
+      module_id: 7, modules: 370, inverters: [{ inverter_id: 10, qty: 2 }] }] };
+  const t = systemTotals(o, lookup);
+  assert.equal(t.modules, 805);
+  assert.ok(Math.abs(t.dc - 579.6) < 1e-9);
+  assert.equal(t.ac, 525);
+  assert.equal(t.inverterQty, 4);
+  assert.deepEqual(t.inverterModels.sort(), ["SG125CX-P2", "SG150CX"]);
+  assert.deepEqual(systemIssues(o, lookup), []);
+  // 266.4 kWp on one 125 kW inverter: 2.13
+  const bad = systemIssues({ ...o, subsystems: [o.subsystems[0], { ...o.subsystems[1], inverters: [{ inverter_id: 10, qty: 1 }] }] }, lookup);
+  assert.equal(bad.length, 2);
+  assert.match(bad[0], /Sub-system 2 \(POC 2\): DC\/AC ratio 2\.13 is outside 0\.8–1\.2/);
+  assert.match(bad[1], /Whole system: DC\/AC ratio 1\.45/);
+  assert.match(systemIssues({ ...o, subsystems: [{ module_id: 7, modules: 10, inverters: [] }] }, lookup)[0], /no inverters/);
+
+  // offers saved before: one module and inverter, split by counts
+  const old = systemsOf({ module_id: 7, inverter_id: 9, split_system: true, subsystems: [{ name: "A", modules: 435, inverters: 2 }] });
+  assert.deepEqual(old[0].inverters, [{ inverter_id: 9, qty: 2 }]);
+  assert.equal(old[0].module_id, 7);
+  assert.equal(systemsOf({ module_id: 7, module_count: 805, inverter_id: 9, inverter_qty: 4 })[0].inverters[0].qty, 4);
+
+  // offers saved before: one design type, height, tilt and azimuth for the whole system
+  const flat = systemsOf({ installation_type: "Ballasted", tilt_deg: 15, subsystems: [{ module_id: 7, modules: 10, inverters: [] }] })[0];
+  assert.equal(flat.installation_type, "Ballasted");
+  assert.equal(flat.tilt_deg, 15);
+  assert.equal(flat.azimuth_deg, null);
+  assert.equal(systemsOf({})[0].installation_type, "Elevated Flat Roof");
+
+  const p = toProject(o, lookup);
+  // the deck's single figures come from the largest sub-system; both design types are named
+  assert.equal(p.tilt_deg, 5);
+  assert.equal(p.elevation_m, 2.5);
+  assert.equal(p.installation_mix, "Elevated Flat Roof and Carpark");
+  assert.equal(p.inverter_mix, "1 × 150kW (SG150CX) and 3 × 125kW (SG125CX-P2)");
+  const { values, months, flow, subsystems } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
+  const render = async (rows) => {
+    const out = await renderPptx(template, { values, months, flow, subsystems: rows, images: {}, moduleModel: module.model,
+      inverterModel: p.inverter.model, inverterModels: p.inverter_models });
+    const zip = await JSZip.loadAsync(out.bytes);
+    let text = "";
+    for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) text += await zip.file(f).async("string");
+    return text;
+  };
+  const text = await render(subsystems);
+  assert.ok(text.includes("System Breakdown"));
+  assert.ok(text.includes(">Elevated Flat Roof, 2.5 m high, 5° tilt, 109° (East)<"), "mounting of sub-system 1");
+  assert.ok(text.includes(">Carpark, 3 m high, 10° tilt, 289° (West)<"), "mounting of sub-system 2");
+  // slide 17: each sub-system's figures
+  for (const x of ["Installation Type: Elevated Flat Roof / Carpark", "Tilt(s): 5° / 10°", "Azimuths (Orientation): 109° (East) / 289° (West)",
+                   "Height: Elevated Flat Roof 2.5 m / Carpark 3 m"]) assert.ok(text.replace(/<\/a:t><\/a:r><a:r>(<a:rPr[^>]*\/>|<a:rPr[^>]*>.*?<\/a:rPr>)<a:t>/g, "").includes(x), x);
+  for (const x of ["POC 1: East roof", "435", "313.2", "1 × SG150CX + 1 × SG125CX-P2", "275", "1.14", "POC 2: West roofs", "266.4",
+                   "2 × SG125CX-P2", "579.6", "805", "525", "4 inverters", "1.1"]) assert.ok(text.includes(`>${x}<`), x);
+  assert.ok(text.includes("1 × 150kW (SG150CX) and 3 × 125kW (SG125CX-P2)"), "slide 27 names both inverter models");
+  assert.ok(!/\{\{SS_/.test(text));
+  assert.ok(!(await render([])).includes("System Breakdown"), "no slide for one sub-system with one inverter model");
+  // one sub-system, one inverter model: no breakdown
+  assert.deepEqual(toProject({ ...o, subsystems: [{ module_id: 7, modules: 400, inverters: [{ inverter_id: 9, qty: 2 }] }] }, lookup).subsystems, []);
+});
+
+test("cover names the client, components slide shows each model used", async () => {
+  const { toProject } = await import("../js/offer/quick.js");
+  const module = { ...base.module, id: 7, wp: 720, make: "Jinko Solar", model: "JKM720N-66HL5-BDV" };
+  const sg150 = { ...base.inverter, id: 9, make: "Sungrow", model: "SG150CX", ac_kw: 150 };
+  const sg125 = { ...base.inverter, id: 10, make: "Sungrow", model: "SG125CX-P2", ac_kw: 125 };
+  const lookup = { module: new Map([[7, module]]), inverter: new Map([[9, sg150], [10, sg125]]), client: new Map() };
+  const p = toProject({ client_name: "Autism Center", price_per_kwp: 300, subsystems: [
+    { module_id: 7, modules: 435, inverters: [{ inverter_id: 9, qty: 1 }, { inverter_id: 10, qty: 1 }] },
+    { module_id: 7, modules: 370, inverters: [{ inverter_id: 10, qty: 2 }] }] }, lookup);
+  assert.deepEqual(p.components.map((c) => [c.kind, c.item.model, c.count]),
+    [["module", "JKM720N-66HL5-BDV", 805], ["inverter", "SG125CX-P2", 3], ["inverter", "SG150CX", 1]]);
+  const { values, months, flow, subsystems } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
+  assert.equal(values.Comp1Name, "Jinko Solar JKM720N-66HL5-BDV");
+  assert.equal(values.Comp1Role, "PV module · 805 units");
+  assert.equal(values.Comp3Role, "Inverter · 1 unit");
+  const png = readFileSync(new URL("../data/products/DS_20241106_SG150CX_Datasheet_V4_EN.png", import.meta.url));
+  const pic = { bytes: new Uint8Array(png), ext: "png", width: 900, height: 719 };
+  const out = await renderPptx(template, { values, months, flow, subsystems, components: 3, images: { comp1: pic, comp2: pic, comp3: pic, client_logo: pic } });
+  const zip = await JSZip.loadAsync(out.bytes);
+  const slides = [];
+  for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) slides.push(await zip.file(f).async("string"));
+  const cover = slides.find((x) => x.includes("Techno-Commercial Offer"));
+  assert.ok(cover.includes("Client: Autism Center"));
+  assert.ok(!/kWp/.test(cover), "no capacity on the cover");
+  assert.ok(!cover.includes('descr="img:'), "client logo placed");
+  const comp = slides.find((x) => x.includes("Selected Components for the Proposed System"));
+  assert.ok(comp, "components slide kept");
+  for (const t of ["Jinko Solar JKM720N-66HL5-BDV", "PV module · 805 units", "Sungrow SG125CX-P2", "Inverter · 3 units", "Sungrow SG150CX"]) assert.ok(comp.includes(t), t);
+  assert.ok(!comp.includes("Comp4") && !comp.includes("Component caption 4"), "the unused fourth column is removed");
+  // three columns over 9 in: the middle picture is centred on the slide
+  const offs = [...comp.matchAll(/<p:pic>[\s\S]*?<a:off x="(\d+)"[\s\S]*?<a:ext cx="(\d+)"/g)].map((m) => Number(m[1]) + Number(m[2]) / 2);
+  assert.ok(offs.some((c) => Math.abs(c - 4572000) < 2000), "a picture centred on the slide");
+  // no module or inverter: no components slide
+  const none = await renderPptx(template, { values, months, flow, images: {}, components: 0 });
+  const z2 = await JSZip.loadAsync(none.bytes);
+  let all = "";
+  for (const f of Object.keys(z2.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) all += await z2.file(f).async("string");
+  assert.ok(!all.includes("Selected Components"));
+});
+
+test("monthly figures from the Solar Access by Month table", async () => {
+  const { parseReport } = await import("../js/offer/helioscope.js");
+  const f = parseReport("Solar Access by Month Description jan feb mar FS-1 100% 100% Solar Access, weighted by kWp 99.9% 99.9% "
+    + "AC Power (kWh) 67,892.3 70,784.9 84,392.1 92,930.6 97,831.6 94,517.7 91,378.6 88,302.0 83,802.6 80,919.8 69,831.8 64,230.1");
+  assert.equal(f.monthly_kwh.length, 12);
+  assert.equal(f.monthly_kwh[0], 67892.3);
+  assert.equal(f.monthly_kwh[11], 64230.1);
+});
+
+test("monthly figures read off the scanned table: separators repaired, then checked as a plausible year", async () => {
+  const { acPowerRow, monthsAgree } = await import("../js/offer/helioscope.js");
+  // as recognised on the sample shading report: some decimal points are lost
+  const ocr = "Solar Access, weighted by kWp 99.9% 99.9%\nAC Power (kWh) 67,8923 70,7849 84,3921 92,930.6 97,8316 945177 91,378.6 883020 83,8026 80,919.8 69,831.8 64,230.1\nlL. Monthlv Production";
+  const months = acPowerRow(ocr);
+  assert.deepEqual(months, [67892.3, 70784.9, 84392.1, 92930.6, 97831.6, 94517.7, 91378.6, 88302, 83802.6, 80919.8, 69831.8, 64230.1]);
+  assert.equal(acPowerRow("AC Power (kWh) 67,892.3 70,784.9"), null);
+  // as recognised on another shading report (four field segments)
+  assert.deepEqual(acPowerRow("AC Power (kwh) 71,2117 74,2282 884751 97,391.9 102567.4 99,101.0 958325 92,6004 87,870.0 84,8437 73,2263 67,370.9"),
+    [71211.7, 74228.2, 88475.1, 97391.9, 102567.4, 99101, 95832.5, 92600.4, 87870, 84843.7, 73226.3, 67370.9]);
+  const { tableNote } = await import("../js/offer/helioscope.js");
+  const { acPowerText } = await import("../js/offer/helioscope.js");
+  assert.deepEqual(acPowerText("Solar Access, weighted by kWp 99.9% 99.8% AC Power (kWh) 71,211.7 74,228.2 88,475.1 97,391.9 102,567.4 99,101.0 95,832.5 92,600.4 87,870.0 84,843.7 73,226.3 67,370.9 Monthly"),
+    [71211.7, 74228.2, 88475.1, 97391.9, 102567.4, 99101, 95832.5, 92600.4, 87870, 84843.7, 73226.3, 67370.9]);
+  assert.equal(acPowerText("no table here"), null);
+  // the table is the source: it isn't rejected for differing from the chart or the annual figure
+  assert.ok(monthsAgree(months));
+  assert.equal(tableNote(months, 986800), "");
+  assert.match(tableNote(months, 900000), /adds up to 986,814 kWh, the production report says 900,000 kWh/);
+  const misread = [...months]; misread[3] = 9293.1; misread[4] += 92930.6 - 9293.1;
+  assert.ok(!monthsAgree(misread), "a month far too small for its year");
+});
+
+test("schedule rows follow the Gantt chart: added activities get rows", async () => {
+  const { DEFAULT_SCHEDULE } = await import("../js/offer/quick.js");
+  const many = [...DEFAULT_SCHEDULE.map((a) => ({ name: a.name, start: a.start, weeks: a.weeks })),
+    { name: "Snag list", start: 18, weeks: 2 }, { name: "Training", start: 19, weeks: 1 }, { name: "Extra works", start: 5, weeks: 3 }];
+  const { values, months, flow } = buildOfferValues(base, new Date("2026-03-05T00:00:00"));
+  const out = await renderPptx(template, { values, months, flow, images: {}, schedule: many, moduleModel: base.module.model, inverterModel: base.inverter.model });
+  const zip = await JSZip.loadAsync(out.bytes);
+  const slides = [];
+  for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) {
+    const x = await zip.file(f).async("string");
+    if (x.includes(">W1<") || x.includes(">W21<")) slides.push(x);
+  }
+  const first = slides.find((x) => x.includes(">W1<"));
+  for (const t of ["Snag list", "Training", "Extra works"]) assert.ok(first.includes(`>${t}<`), t);
+  assert.ok(first.includes(">11<"), "activities are numbered in order");
+  const ids = [...first.matchAll(/a16:rowId [^>]*val="(\d+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, "row ids stay unique");
+});
+
+test("spec slides: datasheet pages for each model without template datasheet slides", async () => {
+  const { specValues } = await import("../js/offer/values.js");
+  const sg320 = { ...base.inverter, make: "Sungrow", model: "SG320HX-20", ac_kw: 320 };
+  const sg125 = { ...base.inverter, make: "Sungrow", model: "SG125CX-P2", ac_kw: 125 };
+  const p = { ...base, inverter: sg125 };
+  const { values, months, flow } = buildOfferValues(p, new Date("2026-03-05T00:00:00"));
+  const png = readFileSync(new URL("../data/products/DS_20241106_SG150CX_Datasheet_V4_EN.png", import.meta.url));
+  const page = { bytes: new Uint8Array(png), ext: "png", width: 2000, height: 1300 };
+  const out = await renderPptx(template, { values, months, flow, images: {},
+    moduleModel: p.module.model, inverterModel: sg125.model, inverterModels: [sg125.model, sg320.model],
+    specSheets: [{ kind: "module", model: p.module.model, values: specValues("module", p.module), pages: async () => [] },
+                 { kind: "inverter", model: sg125.model, values: specValues("inverter", sg125), pages: async () => [page] },
+                 { kind: "inverter", model: sg320.model, values: specValues("inverter", sg320), pages: async () => [page, page, page] }] });
+  const zip = await JSZip.loadAsync(out.bytes);
+  const pres = await zip.file("ppt/presentation.xml").async("string");
+  const rels = await zip.file("ppt/_rels/presentation.xml.rels").async("string");
+  const order = [...pres.matchAll(/<p:sldId [^>]*r:id="([^"]+)"/g)].map((m) => rels.match(new RegExp(`Id="${m[1]}"[^>]*Target="([^"]+)"`))?.[1]
+    || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${m[1]}"`))[1]);
+  const slides = [];
+  for (const t of order) slides.push(await zip.file("ppt/" + t).async("string"));
+  assert.ok(!slides.join("").includes("{{"), "a placeholder was left");
+  // the SG320HX-20: three slides, each one a datasheet picture and no table, after the module's table slide
+  const s320 = slides.map((x, i) => [x, i]).filter(([x]) => x.includes("SG320HX-20 Solar PV Inverter Specification"));
+  assert.equal(s320.length, 3);
+  for (const [x] of s320) { assert.ok(!x.includes("<a:tbl>") && x.includes("<p:pic>") && !x.includes('descr="img:'), "picture, no table"); }
+  assert.deepEqual(s320.map(([, i]) => i - s320[0][1]), [0, 1, 2], "together, in order");
+  // the module has no datasheet: its table slide stays; the SG125CX-P2 keeps its template slides only
+  const mod = slides.filter((x) => x.includes(`${p.module.model} PV Module Specification`));
+  assert.equal(mod.length, 1);
+  assert.ok(mod[0].includes("<a:tbl>") && !mod[0].includes('descr="img:sheet"'));
+  assert.ok(!slides.some((x) => x.includes("SG125CX-P2 Solar PV Inverter Specification")));
+  // every slide part has a content type and no notes slide is shared
+  const ct = await zip.file("[Content_Types].xml").async("string");
+  for (const t of order) assert.ok(ct.includes(`PartName="/ppt/${t}"`), t);
+});
+
+test("DC/AC ratio bands, and the design summary footnote above 1.21", async () => {
+  const { ratioBand } = await import("../js/offer/quick.js");
+  const { dcacNote } = await import("../js/offer/values.js");
+  assert.deepEqual([0.79, 0.8, 1.0, 1.2, 1.21, 1.25, 1.26, null].map(ratioBand), ["bad", "ok", "ok", "ok", "high", "high", "bad", null]);
+  assert.equal(dcacNote(1.21), "");
+  assert.match(dcacNote(1.23), /^\* The DC\/AC ratio of 123 % is above 120 %\. If the client is not comfortable with this, the offer can be resubmitted/);
+  assert.match(dcacNote(1.1, [{ name: "Roof B", ratio: 1.24 }, { name: "Roof A", ratio: 1.0 }]), /^\* Roof B \(124 %\) has a DC\/AC ratio above 120 %/);
+  // the deck: an asterisk by the ratio on slide 15 and the note under its table
+  const p = { ...base, inverter_qty: 1, inverter: { ...base.inverter, ac_kw: dcKwpOf(base) / 1.23 } };
+  const d = await deck(p);
+  assert.ok(/123 %\*/.test(d.text), "asterisk by the ratio");
+  assert.ok(d.text.includes("is above 120 %. If the client is not comfortable with this"), "footnote");
+  const plain = await deck(base);
+  assert.ok(!plain.text.includes("If the client is not comfortable") && !/\d %\*/.test(plain.text));
 });
