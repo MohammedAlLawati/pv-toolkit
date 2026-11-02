@@ -150,9 +150,9 @@ export function capacities(o, lookup = {}) {
  * then by how close the ratio is to DCAC_TARGET, then one model before two.
  * Returns [{ inverters: [{ inverter_id, qty }], ac, ratio, count, label }], best first.
  */
-export function suggestInverters(dc, inverters, { limit = 6, maxCount = 60 } = {}) {
+export function suggestInverters(dc, inverters, { limit = 6, maxCount = 60, min = DCAC_MIN, max = DCAC_MAX, target = DCAC_TARGET } = {}) {
   if (!isNum(dc)) return [];
-  const lo = dc / DCAC_MAX, hi = dc / DCAC_MIN;
+  const lo = dc / max, hi = dc / min;
   const sizes = [...new Map(inverters.filter((i) => isNum(i.ac_kw)).map((i) => [i.id, i])).values()];
   const out = [];
   const add = (parts) => {
@@ -177,7 +177,7 @@ export function suggestInverters(dc, inverters, { limit = 6, maxCount = 60 } = {
     }
     if (found === null && out.length > before) found = k;
   }
-  out.sort((x, y) => x.count - y.count || Math.abs(x.ratio - DCAC_TARGET) - Math.abs(y.ratio - DCAC_TARGET) || x.models - y.models);
+  out.sort((x, y) => x.count - y.count || Math.abs(x.ratio - target) - Math.abs(y.ratio - target) || x.models - y.models);
   return out.slice(0, limit);
 }
 

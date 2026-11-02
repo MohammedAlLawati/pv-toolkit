@@ -71,3 +71,24 @@ test("modules split over inverters", () => {
   assert.deepEqual(splitModules(250, 3), [{ count: 2, modules: 83 }, { count: 1, modules: 84 }]);
   assert.deepEqual(splitModules(120, 2), [{ count: 2, modules: 60 }]);
 });
+
+test("proposed designs: offer deck ratio band, series-only, every module placed", async () => {
+  const { proposeDesigns } = await import("../js/sizing/stringing.js");
+  const m = JINKO_MODULES.find((x) => x.model.startsWith("JKM620"));
+  const d = { t_min_c: 0, t_max_c: 60 };
+  for (const dc of [10, 50, 100, 250]) {
+    const opts = proposeDesigns(m, invs, d, s, { dc, ratioMin: 0.8, ratioMax: 1.25, seriesOnly: true });
+    assert.ok(opts.length, `${dc} kWp`);
+    for (const o of opts) {
+      assert.ok(o.ratio >= 0.8 - 1e-9 && o.ratio <= 1.25 + 1e-9, `${dc}: ${o.label} ratio ${o.ratio}`);
+      for (const p of o.parts) for (const gr of p.groups) {
+        assert.ok(gr.fill.rows.every((r) => (r.strings || 0) <= 1), `${o.label} has parallel strings`);
+        assert.ok(!gr.check.mppts.some((r) => r.status === "fail"), o.label);
+      }
+    }
+    assert.ok(opts[0].fits, `${dc} kWp: best option places every module`);
+  }
+  // narrower band is respected
+  const tight = proposeDesigns(m, invs, d, s, { dc: 100, ratioMin: 0.95, ratioMax: 1.05 });
+  assert.ok(tight.every((o) => o.ratio >= 0.95 - 1e-9 && o.ratio <= 1.05 + 1e-9));
+});

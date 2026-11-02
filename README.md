@@ -51,19 +51,20 @@ A private web app for solar PV work: clients, projects, authority paperwork, and
 
 ## Stringing calculator (static app, `web/`)
 
-- **Stringing calculator** in the menu, or from a project's sizing page. Works with or without a project.
-- Pick a module and an inverter from the library and the site's record low and max. ambient. It shows:
-  - the allowed modules per string, and the narrower range that also clears the warnings (cold-morning standby, start-up voltage)
-  - which limit sets the min. and max. (inverter max. DC voltage, module max. system voltage, connector limit, MPPT window)
-  - a voltage table by string length: Voc cold, Vmp cold / STC / hot, kWp
-  - how many strings each MPPT takes, and whether its inputs, short-circuit current or operating current set that
-  - the most modules and kWp one inverter can take
-- **MPPT layout:** enter strings and modules per string for each MPPT (each MPPT can have its own length) and every
-  MPPT is checked live. *Suggest stringing* splits a module count over the inverters and fills each one, with one string
-  length where the count allows and two lengths on separate MPPTs otherwise. *Copy as text* gives a stringing schedule;
-  *Apply to project* writes a single-length layout back to the project.
-- Same temperature model, rule profile and per-MPPT limits as the project rules check. Code: `web/js/sizing/stringing.js`
-  and `web/js/pages/stringing.js`; tests in `web/tests/stringing.test.mjs`.
+- **Stringing calculator** in the menu. It first asks whether to link the calculation to a client (the client's
+  required capacity fills in, and the result can be saved on the client as `client.stringing`) or to work standalone.
+  The client page can open it directly with `#/stringing?client=<id>`.
+- **Inputs:** DC capacity (kWp), module, inverter range, operating temperatures (default 0–60 °C), DC/AC limits
+  (default 0.8 lowest, 1.2 normal max., 1.25 overload max., all editable), series strings only (default on),
+  high-voltage connectors and the rule profile.
+- **Proposed configurations:** inverter combinations from the library picked with the offer deck's logic
+  (`suggestInverters`: fewest inverters, then ratio closest to 1.0, up to two models), each strung within the hard
+  rules. Ratios above the normal max. are marked as overloaded.
+- **Stringing diagram** per inverter: MPPTs used, strings per MPPT and modules per string, plus every calculation
+  step (module count, temperatures, Voc/Vmp at temperature, string length limits, strings per MPPT, DC/AC).
+- Voltage-by-length and MPPT-limit tables, and a hand editor for one inverter, are under the diagram.
+- Code: `web/js/sizing/stringing.js` (`proposeDesigns`, `stringLimits`, `fillLayout`, `checkLayout`) and
+  `web/js/pages/stringing.js`; tests in `web/tests/stringing.test.mjs`.
 
 ## What Phase 3 adds: yield simulation and report (static app, `web/`)
 
