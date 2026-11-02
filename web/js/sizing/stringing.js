@@ -5,6 +5,8 @@
 // (engine.js), so its answers agree with the project rules check.
 
 import { allocate, moduleValues, mpptCaps, mpptLimits, temperatures } from "./engine.js";
+import { inverterReady } from "../equipment_fields.js";
+import { suggestInverters } from "../offer/quick.js";
 
 const EPS = 1e-9;
 const sev = (s, key) => s.severity[key] || "off";
@@ -101,7 +103,7 @@ export function inverterMax(m, inv, lim, caps) {
  * MPPT has the same length (strings of different lengths in parallel pull the MPPT off both
  * strings' best point).
  */
-export function checkLayout(m, inv, lim, caps, rows, s) {
+export function checkLayout(m, inv, lim, caps, rows, s, { seriesOnly = false } = {}) {
   const v = s.values, mv = lim.mv;
   const out = { mppts: [], modules: 0, strings: 0, kwp: 0, ratio: null, issues: [], status: "pass" };
   const flag = (hard, text) => out.issues.push({ hard, text });
@@ -116,6 +118,7 @@ export function checkLayout(m, inv, lim, caps, rows, s) {
       for (const x of row.len.issues) {
         row.problems.push({ hard: x.hard, text: `${x.value.toFixed(0)} V ${x.over ? ">" : "<"} ${x.volts} V (${x.label})` });
       }
+      if (seriesOnly && n > 1) row.problems.push({ hard: false, text: `${n} strings in parallel (series-only is ticked)` });
       if (c.connectors && n > c.connectors) row.problems.push({ hard: sev(s, "strings_mppt") === "hard", text: `${n} strings on ${c.connectors} inputs` });
       if (c.isc_limit && row.isc > c.isc_limit + EPS && on(s, "isc_mppt")) {
         row.problems.push({ hard: sev(s, "isc_mppt") === "hard", text: `Isc ${row.isc.toFixed(1)} A > ${c.isc_limit} A (incl. ×${v.isc_factor})` });
@@ -234,4 +237,52 @@ export function splitModules(total, qty) {
   if (!total || !qty) return [];
   const base = Math.floor(total / qty), extra = total % qty;
   return [[qty - extra, base], [extra, base + 1]].filter(([c, n]) => c && n).map(([count, modules]) => ({ count, modules }));
+}
+
+/** The MPPT capacities with series-only stringing: at most one string on each MPPT. */
+export const seriesCaps = (caps) => caps.map((c) => ({ ...c, cap: c.cap === null ? 1 : Math.min(c.cap, 1) }));
+
+/**
+ * Inverter configurations for a DC capacity, each with its stringing.
+ * Inverter choice follows the offer deck (suggestInverters: fewest inverters, ratio within
+ * ratioMin..ratioMax, closest to 1.0); each inverter is then filled with fillLayout.
+ * opts = { dc (kWp), ratioMin, ratioMax, seriesOnly, limit }; d = { t_min_c, t_max_c, hv_connectors }.
+ * Returns [{ label, parts: [{ inverter, qty, lim, caps, groups: [{ count, modules, fill, check }] }],
+ *            target_modules, modules, dc_kwp, ac_kw, ratio, fits, ok }].
+ */
+export function proposeDesigns(m, inverters, d, s, { dc, ratioMin = 0.8, ratioMax = 1.25, seriesOnly = true, limit = 6 } = {}) {
+  if (!m || !m.wp || !dc || dc <= 0) return [];
+  const N = Math.max(1, Math.round((dc * 1000) / m.wp));
+  const ready = inverters.filter((v) => inverterReady(v) && v.ac_kw);
+  const byId = new Map(ready.map((v) => [v.id, v]));
+  const combos = suggestInverters((N * m.wp) / 1000, ready, { limit: 40, min: ratioMin, max: ratioMax });
+  const out = [];
+  for (const c of combos) {
+    const parts = c.inverters.map(({ inverter_id, qty }) => ({ inverter: byId.get(inverter_id), qty }));
+    const acTotal = parts.reduce((t, p) => t + p.inverter.ac_kw * p.qty, 0);
+    let left = N, ok = true, modules = 0;
+    parts.forEach((p, i) => {
+      const share = i === parts.length - 1 ? left : Math.round((N * p.inverter.ac_kw * p.qty) / acTotal);
+      left -= share;
+      p.lim = stringLimits(m, p.inverter, d, s);
+      const caps = mpptCapacity(p.inverter, p.lim, s);
+      p.caps = seriesOnly ? seriesCaps(caps) : caps;
+      p.groups = splitModules(share, p.qty).map((gr) => {
+        const fill = fillLayout(p.lim, p.caps, gr.modules);
+        const check = fill ? checkLayout(m, p.inverter, p.lim, p.caps, fill.rows, s, { seriesOnly }) : null;
+        if (!fill || check.mppts.some((r) => r.status === "fail")) ok = false;
+        if (fill) modules += gr.count * fill.modules;
+        return { ...gr, fill, check };
+      });
+    });
+    if (!ok || !modules) continue;
+    const dcKwp = (modules * m.wp) / 1000;
+    if (dcKwp / acTotal < ratioMin - EPS) continue; // too few modules fit for the ratio
+    const warnings = parts.reduce((t, p) => t + p.groups.reduce((u, gr) => u + gr.check.mppts.reduce((w, r) => w + r.problems.length, 0), 0), 0);
+    out.push({ label: c.label, parts, target_modules: N, modules, dc_kwp: dcKwp, ac_kw: acTotal, ratio: dcKwp / acTotal,
+               fits: modules === N, inverters: c.count, warnings });
+  }
+  // every module placed first, then the offer deck's order (fewest inverters, ratio near 1.0)
+  out.sort((a, b) => (b.fits - a.fits) || (a.fits ? 0 : b.modules - a.modules));
+  return out.slice(0, limit);
 }
