@@ -49,6 +49,22 @@ A private web app for solar PV work: clients, projects, authority paperwork, and
   MC4 Evo2), connection limit (approved load / spare transformer capacity), cable runs.
 - The engine is in `app/sizing/` (`engine.py` calculations, `rules.py` parameters and rules).
 
+## Stringing calculator (static app, `web/`)
+
+- **Stringing calculator** in the menu, or from a project's sizing page. Works with or without a project.
+- Pick a module and an inverter from the library and the site's record low and max. ambient. It shows:
+  - the allowed modules per string, and the narrower range that also clears the warnings (cold-morning standby, start-up voltage)
+  - which limit sets the min. and max. (inverter max. DC voltage, module max. system voltage, connector limit, MPPT window)
+  - a voltage table by string length: Voc cold, Vmp cold / STC / hot, kWp
+  - how many strings each MPPT takes, and whether its inputs, short-circuit current or operating current set that
+  - the most modules and kWp one inverter can take
+- **MPPT layout:** enter strings and modules per string for each MPPT (each MPPT can have its own length) and every
+  MPPT is checked live. *Suggest stringing* splits a module count over the inverters and fills each one, with one string
+  length where the count allows and two lengths on separate MPPTs otherwise. *Copy as text* gives a stringing schedule;
+  *Apply to project* writes a single-length layout back to the project.
+- Same temperature model, rule profile and per-MPPT limits as the project rules check. Code: `web/js/sizing/stringing.js`
+  and `web/js/pages/stringing.js`; tests in `web/tests/stringing.test.mjs`.
+
 ## What Phase 3 adds: yield simulation and report (static app, `web/`)
 
 - **Yield page per project** (Sizing → *Yield simulation*, or *Yield simulation & reports* in the menu).

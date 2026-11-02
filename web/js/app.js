@@ -18,6 +18,7 @@ const ROUTES = [
   ["/projects/:id/edit", "projects", "form", "projects"],
   ["/projects/:id/sizing", "sizing", "sizing", "sizing"],
   ["/sizing", "sizing", "index", "sizing"],
+  ["/stringing", "stringing", "stringing", "stringing"],
   ["/projects/:id/yield", "yield", "project", "yield"],
   ["/projects/:id/yield/report", "yield", "report", "yield"],
   ["/yield", "yield", "index", "yield"],
@@ -144,5 +145,5 @@ cloud.onStatus((s) => {
 // Changes from another device: show them, unless a form is open here.
 addEventListener("cloud-pulled", () => {
   const typing = document.activeElement?.matches?.("input, textarea, select");
-  if (!typing && !/\/(new|edit)\b|\/quick\b|\/sizing\b|\/yield\b/.test(location.hash)) route();
+  if (!typing && !/\/(new|edit)\b|\/quick\b|\/sizing\b|\/stringing\b|\/yield\b/.test(location.hash)) route();
 });
