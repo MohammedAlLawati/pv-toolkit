@@ -397,3 +397,11 @@ table.str-layout tr.ck-warn td[data-c=check] { color: var(--warn); }
 #str-layout .bar { position: static; background: none; padding: 10px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .grid-sizing > * { min-width: 0; }
 .grid-sizing select { max-width: 100%; }
+
+/* Document preview (forms): docx-preview pages, scaled to the panel width */
+.preview-area { overflow: hidden; }
+.docx-preview .docx-wrapper { background: var(--line); padding: 16px; width: max-content; }
+.docx-preview .docx-wrapper > section.docx { margin: 0 auto 16px; box-shadow: 0 1px 4px rgba(0, 0, 0, .18); isolation: isolate; }
+.docx-preview section.docx p { position: relative; }
+/* A paragraph holding only floating drawings is still one line tall in Word. */
+.docx-preview section.docx p::after { content: "\200b"; }
