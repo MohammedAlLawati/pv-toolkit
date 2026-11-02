@@ -8,7 +8,8 @@ import { byName, loadAll, settingsFor } from "../data.js";
 import { CATEGORIES, moduleLabel, moduleReady } from "../equipment_fields.js";
 import { moduleOptions } from "../options.js";
 import { tcVmpPct } from "../sizing/engine.js";
-import { checkLayout, lengthTable, mpptCapacity, proposeDesigns } from "../sizing/stringing.js";
+import { checkLayout, designFor, lengthTable, mpptCapacity, proposeDesigns } from "../sizing/stringing.js";
+import { inverterOptions } from "../options.js";
 import { setTitle } from "../app.js";
 
 const KEY = "pv-toolkit-stringing";
@@ -93,15 +94,19 @@ function calculator(main, all, client) {
   const last = remembered();
   const fromClient = clientDc(client, all);
   const saved = client?.stringing || null;
-  const st = { ...DEFAULTS, module_id: null, dc_kwp: null, rule_profile_id: null, ...last, choice: 0, rows: [] };
+  const st = { ...DEFAULTS, module_id: null, dc_kwp: null, modules: null, rule_profile_id: null, custom: [], ...last, choice: 0, rows: [] };
+  if (!Array.isArray(st.custom)) st.custom = [];
   if (client) {
     st.dc_kwp = fromClient.dc ?? null;
     if (fromClient.module_id) st.module_id = fromClient.module_id;
-    if (saved) Object.assign(st, { module_id: saved.module_id ?? st.module_id, dc_kwp: saved.dc_target_kwp ?? st.dc_kwp,
+    st.modules = null;
+    if (saved) Object.assign(st, { module_id: saved.module_id ?? st.module_id, dc_kwp: saved.dc_target_kwp ?? st.dc_kwp, modules: saved.target_modules ?? null,
       t_min_c: saved.t_min_c ?? st.t_min_c, t_max_c: saved.t_max_c ?? st.t_max_c, series_only: saved.series_only ?? st.series_only,
       ratio_min: saved.ratio_min ?? st.ratio_min, ratio_ok: saved.ratio_ok ?? st.ratio_ok, ratio_max: saved.ratio_max ?? st.ratio_max });
   }
   if (!all.module.get(st.module_id)) st.module_id = all.modules.find(moduleReady)?.id ?? null;
+  const wpOf = () => all.module.get(st.module_id)?.wp || null;
+  if (!st.modules && st.dc_kwp && wpOf()) st.modules = Math.max(1, Math.round((st.dc_kwp * 1000) / wpOf()));
 
   const ready = all.modules.length && all.inverters.length;
   main.innerHTML = html`
@@ -115,9 +120,12 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
   <form id="str-form" class="panel" autocomplete="off">
     <h2>Inputs</h2>
     <div class="fields one">
-      <label>DC capacity (kWp) <input name="dc_kwp" value="${g(st.dc_kwp)}" inputmode="decimal" placeholder="e.g. 100">
-        ${client ? html`<span class="hint">${fromClient.note}</span>` : ""}</label>
       <label>PV module <select name="module_id">${moduleOptions(all.modules, st.module_id, { readiness: true })}</select></label>
+      <div class="pair">
+        <label>Number of panels <input name="modules" value="${g(st.modules)}" inputmode="numeric" placeholder="e.g. 474"></label>
+        <label>DC capacity (kWp) <input name="dc_kwp" value="${g(st.dc_kwp)}" inputmode="decimal" placeholder="e.g. 341.28"></label>
+      </div>
+      <p class="small muted" id="dc-hint" style="margin:0">${client ? fromClient.note + " " : ""}Type either one: the other follows from the panel size.</p>
       <label>Inverters to consider <select name="scope"><option value="any">Any in the library</option>
         ${Object.entries(CATEGORIES).map(([k, lab]) => html`<option value="${k}" ${sel(st.scope === k)}>${lab} only</option>`)}</select></label>
     </div>
@@ -135,7 +143,7 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
     </div>
     <p class="small muted">Same rule as the offer deck: designs from the lowest to the overload max. are proposed, and anything above the normal max. is marked as overloaded.</p>
     <div class="fields one">
-      <label class="check"><input type="checkbox" name="series_only" value="yes" ${chk(st.series_only)}> Series strings only (one string per MPPT, no parallel strings)</label>
+      <label class="check"><input type="checkbox" name="series_only" value="yes" ${chk(st.series_only)}> Prefer series strings (one string per MPPT; parallel only on inverters where the panels don't fit otherwise)</label>
       <label class="check"><input type="checkbox" name="hv_connectors" value="yes" ${chk(st.hv_connectors)}> High-voltage DC connectors fitted (e.g. MC4 Evo2)</label>
       <label>Rule profile
         <select name="rule_profile_id"><option value="">Default</option>
@@ -143,7 +151,10 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
         </select><span class="hint">Safety factor, hot-cell irradiance and which checks are hard rules.</span></label>
     </div>
   </form>
-  <div class="panel" id="str-options"></div>
+  <div>
+    <div class="panel" id="str-options"></div>
+    <div class="panel" id="str-custom"></div>
+  </div>
 </div>
 <div class="panel" id="str-design"></div>
 <div class="panel" id="str-calc"></div>
@@ -157,6 +168,7 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
   function readForm() {
     const fd = new FormData(form);
     st.dc_kwp = numOrNull(fd.get("dc_kwp"));
+    st.modules = numOrNull(fd.get("modules"));
     st.module_id = numOrNull(fd.get("module_id"));
     st.scope = String(fd.get("scope") || "any");
     for (const k of ["t_min_c", "t_max_c", "ratio_min", "ratio_ok", "ratio_max"]) st[k] = numOrNull(fd.get(k)) ?? DEFAULTS[k];
@@ -172,10 +184,13 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
     const d = { t_min_c: st.t_min_c, t_max_c: st.t_max_c, hv_connectors: st.hv_connectors };
     if (!m) return { s, d, msg: "Choose a module." };
     if (!moduleReady(m)) return { s, d, m, msg: html`${moduleLabel(m)} has no electrical values yet. <a href="#/library/module/${m.id}">Add them in the library</a>.` };
-    if (!st.dc_kwp) return { s, d, m, msg: "Enter the DC capacity." };
+    if (!st.modules) return { s, d, m, msg: "Enter the number of panels or the DC capacity." };
     const invs = all.inverters.filter((v) => st.scope === "any" || v.category === st.scope);
-    const options = proposeDesigns(m, invs, d, s, { dc: st.dc_kwp, ratioMin: st.ratio_min, ratioMax: st.ratio_max, seriesOnly: st.series_only, limit: 8 });
-    return { s, d, m, invs, options };
+    const opts = { modules: st.modules, ratioMin: st.ratio_min, ratioMax: st.ratio_max, preferSeries: st.series_only };
+    const options = proposeDesigns(m, invs, d, s, { ...opts, limit: 8 });
+    const parts = st.custom.map((c) => ({ inverter: all.inverter.get(c.inverter_id), qty: c.qty })).filter((p) => p.inverter && p.qty > 0);
+    const custom = parts.length ? { ...designFor(m, parts, d, s, opts), custom: true } : null;
+    return { s, d, m, invs, options, custom };
   }
 
   const band = (r) => (r > st.ratio_max + 1e-9 || r < st.ratio_min - 1e-9 ? "err" : r > st.ratio_ok + 1e-9 ? "warn" : "ok");
@@ -184,7 +199,7 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
   function renderOptions() {
     if (ctx.msg) { boxOptions.innerHTML = html`<h2>Proposed configurations</h2><div class="empty">${ctx.msg}</div>`; return; }
     const { m, options } = ctx;
-    const n = Math.max(1, Math.round((st.dc_kwp * 1000) / m.wp));
+    const n = st.modules;
     boxOptions.innerHTML = html`
 <div class="panel-head"><h2>Proposed configurations</h2><span class="small muted">${n} × ${g(m.wp)} Wp = ${num((n * m.wp) / 1000)} kWp</span></div>
 ${options.length ? html`<div class="table-scroll"><table class="options">
@@ -196,20 +211,62 @@ ${options.length ? html`<div class="table-scroll"><table class="options">
       <td><input type="radio" name="pick" ${chk(i === st.choice)} aria-label="Choose"></td>
       <td>${o.label}</td><td class="r num">${num(o.ac_kw)}</td>
       <td class="r num"><span class="pill ${band(o.ratio)}">${r2(o.ratio)}</span></td>
-      <td class="r num">${o.modules}${o.fits ? "" : html`<div class="small err-text">of ${o.target_modules}</div>`}</td>
+      <td class="r num">${o.modules}</td>
       <td class="r num">${used} / ${total}</td>
-      <td>${o.warnings ? html`<span class="pill warn" title="Passes the hard rules, with warnings">${plural(o.warnings, "warning")}</span>` : html`<span class="pill ok">passes</span>`}</td></tr>`;
+      <td>${o.parallel ? html`<span class="pill" title="MPPTs with two or more strings in parallel">parallel on ${o.parallel}</span> ` : html`<span class="pill">series</span> `}${o.warnings ? html`<span class="pill warn" title="Passes the hard rules, with warnings">${plural(o.warnings, "warning")}</span>` : html`<span class="pill ok">passes</span>`}</td></tr>`;
   })}</tbody>
 </table></div>
-<p class="small muted">Fewest inverters first, then the DC/AC ratio closest to 1.0 (the offer deck's order). Ratios above ${g(st.ratio_ok)} are overloaded (allowed up to ${g(st.ratio_max)}, noted on the design).</p>`
-  : html`<div class="flash warn">No inverter configuration in the library fits ${num(st.dc_kwp)} kWp with DC/AC ${g(st.ratio_min)}–${g(st.ratio_max)}${st.series_only ? " using series strings only. Try unticking 'Series strings only': larger systems usually need two strings in parallel on some MPPTs" : ""}.</div>`}`;
+<p class="small muted">Only configurations that take all ${n} panels, with every string inside the inverter's MPPT voltage window at ${g(st.t_min_c)}–${g(st.t_max_c)} °C. ${st.series_only ? "All-series configurations first, then " : ""}fewest inverters, then the DC/AC ratio closest to 1.0 (the offer deck's order). Ratios above ${g(st.ratio_ok)} are overloaded (allowed up to ${g(st.ratio_max)}).</p>`
+  : html`<div class="flash warn">No inverter configuration in the library takes all ${n} panels with DC/AC ${g(st.ratio_min)}–${g(st.ratio_max)} and every string inside the MPPT voltage window. Try another inverter range, or enter your own configuration below to see what doesn't fit.</div>`}`;
     boxOptions.querySelectorAll("[data-pick]").forEach((tr) => tr.addEventListener("click", () => {
       st.choice = Number(tr.dataset.pick);
-      renderOptions(); renderDesign(); renderCalc(); renderMore();
+      renderAllButForm();
     }));
   }
 
-  const chosen = () => (ctx.options && ctx.options[st.choice]) || null;
+  const chosen = () => (st.choice === "custom" ? ctx.custom : (ctx.options && ctx.options[st.choice])) || null;
+
+  // ---- your own inverter configuration --------------------------------------------------
+
+  const boxCustom = main.querySelector("#str-custom");
+  function renderCustomForm() {
+    const rows = st.custom.length ? st.custom : [{ inverter_id: null, qty: 1 }];
+    boxCustom.innerHTML = html`
+<div class="panel-head"><h2>Your own configuration</h2><span class="small muted">Pick inverters from the library; the tool strings them and checks them</span></div>
+<div id="custom-rows">${rows.map((r, i) => html`<div class="custom-row" data-i="${i}">
+  <select name="inv">${inverterOptions(all.inverters, r.inverter_id)}</select>
+  <input name="qty" value="${g(r.qty)}" inputmode="numeric" aria-label="Quantity">
+  <button type="button" class="btn small" data-del="${i}" title="Remove">✕</button></div>`)}</div>
+<div class="bar"><button type="button" class="btn small" id="custom-add">+ Add another inverter model</button></div>
+<div id="custom-result"></div>`;
+    const read = () => {
+      st.custom = [...boxCustom.querySelectorAll(".custom-row")].map((row) => ({
+        inverter_id: numOrNull(row.querySelector("[name=inv]").value), qty: numOrNull(row.querySelector("[name=qty]").value) || 0 }));
+    };
+    boxCustom.querySelector("#custom-rows").addEventListener("input", () => { read(); customChanged(); });
+    boxCustom.querySelector("#custom-rows").addEventListener("change", () => { read(); customChanged(); });
+    boxCustom.querySelector("#custom-add").addEventListener("click", () => { read(); st.custom.push({ inverter_id: null, qty: 1 }); renderCustomForm(); customChanged(); });
+    boxCustom.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => {
+      read(); st.custom.splice(Number(b.dataset.del), 1); renderCustomForm(); customChanged();
+    }));
+    renderCustomResult();
+  }
+  function renderCustomResult() {
+    const box = boxCustom.querySelector("#custom-result");
+    const c = ctx && !ctx.msg ? ctx.custom : null;
+    if (!c) { box.innerHTML = ctx?.msg ? "" : html`<p class="small muted">Choose an inverter and a quantity.</p>`; return; }
+    box.innerHTML = html`
+<div class="verdict ${c.ok ? (c.warnings ? "warn" : "pass") : "fail"}"><b>${c.ok ? (c.warnings ? "Works, with warnings" : "Works") : "Doesn't work as entered"}</b>
+  <span>${c.label} · ${num(c.ac_kw)} kW · ${c.modules} of ${c.target_modules} panels · DC/AC ${r2(c.ratio)}${c.parallel ? ` · parallel on ${c.parallel} MPPTs` : ""}</span></div>
+${c.issues.map((x) => html`<div class="ck-line ck-fail small">${x}</div>`)}
+<div class="bar"><button type="button" class="btn small ${st.choice === "custom" ? "primary" : ""}" id="custom-show">${st.choice === "custom" ? "Shown below" : "Show its stringing below"}</button></div>`;
+    box.querySelector("#custom-show").addEventListener("click", () => { st.choice = "custom"; renderAllButForm(); });
+  }
+  let ctimer = null;
+  function customChanged() {
+    clearTimeout(ctimer);
+    ctimer = setTimeout(() => { ctx = compute(); if (st.choice !== "custom" && ctx.custom && !ctx.options?.length) st.choice = "custom"; renderAllButForm(); remember(st); }, 200);
+  }
 
   // ---- the diagram -----------------------------------------------------------------------
 
@@ -275,7 +332,8 @@ ${options.length ? html`<div class="table-scroll"><table class="options">
     const o = ctx.msg ? null : chosen();
     if (!o) { boxDesign.innerHTML = html`<h2>Stringing</h2><div class="empty">${ctx.msg || "Choose a configuration above."}</div>`; return; }
     const { m } = ctx;
-    const allGroups = o.parts.flatMap((p) => p.groups.map((gr) => ({ p, gr })));
+    const allGroups = o.parts.flatMap((p) => p.groups.map((gr) => ({ p, gr }))).filter(({ gr }) => gr.fill);
+    if (!allGroups.length) { boxDesign.innerHTML = html`<h2>Stringing: ${o.label}</h2>${o.issues.map((x) => html`<div class="flash error">${x}</div>`)}`; return; }
     const usedMppt = allGroups.reduce((t, { gr }) => t + gr.count * gr.fill.rows.filter((r) => r.strings).length, 0);
     const totalMppt = o.parts.reduce((t, p) => t + p.qty * p.caps.length, 0);
     const strings = allGroups.reduce((t, { gr }) => t + gr.count * gr.fill.strings, 0);
@@ -287,12 +345,13 @@ ${options.length ? html`<div class="table-scroll"><table class="options">
 <div class="summary six">
   <div><span>Inverters</span><b>${o.inverters}</b></div>
   <div><span>MPPTs used</span><b>${usedMppt} <small class="muted">of ${totalMppt}</small></b></div>
-  <div><span>Strings per MPPT</span><b>${perMppt.join(" or ")}</b><small class="muted">${perMppt.length === 1 && perMppt[0] === 1 ? "series only" : "parallel on some"}</small></div>
+  <div><span>Strings per MPPT</span><b>${perMppt.join(" or ")}</b><small class="muted">${perMppt.length === 1 && perMppt[0] === 1 ? "series only" : `parallel on ${o.parallel} MPPT${o.parallel === 1 ? "" : "s"}`}</small></div>
   <div><span>Panels per string</span><b>${lengths.join(" / ")}</b></div>
   <div><span>Strings / panels</span><b>${strings} / ${o.modules}</b></div>
   <div><span>DC / AC</span><b>${num(o.dc_kwp)} / ${num(o.ac_kw)}</b><small><span class="pill ${band(o.ratio)}">${r2(o.ratio)} ${bandText(o.ratio)}</span></small></div>
 </div>
-${o.fits ? "" : html`<div class="flash warn">Only ${o.modules} of the ${o.target_modules} modules fit this configuration's inputs.</div>`}
+${o.custom ? html`<div class="note small">Your own configuration.</div>` : ""}
+${o.issues?.length ? html`<div class="flash ${o.ok ? "warn" : "error"}">${o.issues.map((x) => html`<div>${x}</div>`)}</div>` : ""}
 ${band(o.ratio) === "warn" ? html`<div class="note small">Overloaded: DC/AC ${r2(o.ratio)} is above ${g(st.ratio_ok)} (allowed up to ${g(st.ratio_max)}). The inverter will clip at its AC rating around midday on the best days; note it on the offer.</div>` : ""}
 ${allGroups.map(({ p, gr }) => html`
 <div class="dg-group">
@@ -303,7 +362,7 @@ ${allGroups.map(({ p, gr }) => html`
 ${warns.length ? html`<div class="small" style="margin-top:8px">${warns.map((w) => html`<div class="ck-line ck-warn">${w}</div>`)}</div>` : ""}
 <div class="bar">
   <button type="button" class="btn" id="copy">Copy as text</button>
-  ${client ? html`<button type="button" class="btn sun" id="save">Save to ${client.name}</button>` : ""}
+  ${client ? html`<button type="button" class="btn sun" id="save" ${o.ok ? "" : "disabled"} title="${o.ok ? "" : "Fix the problems above first"}">Save to ${client.name}</button>` : ""}
 </div>
 ${client && saved ? html`<p class="small muted">${client.name} has a saved stringing from ${new Date(saved.saved_at).toLocaleString("en-GB")}: ${saved.label}, ${saved.modules} modules, DC/AC ${r2(saved.ratio)}.</p>` : ""}`;
     boxDesign.querySelector("#copy").addEventListener("click", copyText);
@@ -313,8 +372,8 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
   function summaryText(o) {
     const { m } = ctx;
     const lines = [`${o.label}: ${o.modules} × ${moduleLabel(m)} = ${num(o.dc_kwp)} kWp on ${num(o.ac_kw)} kW, DC/AC ${r2(o.ratio)} (${bandText(o.ratio)})`,
-      `Temperatures ${g(st.t_min_c)}–${g(st.t_max_c)} °C${st.series_only ? ", series strings only" : ""}`];
-    for (const p of o.parts) for (const gr of p.groups) {
+      `Temperatures ${g(st.t_min_c)}–${g(st.t_max_c)} °C; strings inside the MPPT voltage window${o.parallel ? `; parallel strings on ${o.parallel} MPPTs` : "; series strings only"}`];
+    for (const p of o.parts) for (const gr of p.groups.filter((x) => x.fill)) {
       lines.push(`${gr.count} × ${p.inverter.model} (${gr.fill.modules} modules each): ` + groupText(gr.fill.rows, p.caps).join("; "));
     }
     return lines.join("\n");
@@ -329,10 +388,10 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
     const o = chosen();
     const rec = all.client.get(client.id);
     const stringing = {
-      label: o.label, module_id: ctx.m.id, dc_target_kwp: st.dc_kwp, modules: o.modules, dc_kwp: o.dc_kwp, ac_kw: o.ac_kw, ratio: o.ratio,
+      label: o.label, module_id: ctx.m.id, dc_target_kwp: st.dc_kwp, target_modules: st.modules, modules: o.modules, dc_kwp: o.dc_kwp, ac_kw: o.ac_kw, ratio: o.ratio,
       t_min_c: st.t_min_c, t_max_c: st.t_max_c, series_only: st.series_only, ratio_min: st.ratio_min, ratio_ok: st.ratio_ok, ratio_max: st.ratio_max,
       inverters: o.parts.map((p) => ({ inverter_id: p.inverter.id, qty: p.qty,
-        groups: p.groups.map((gr) => ({ count: gr.count, modules: gr.fill.modules, mppts: gr.fill.rows.map((r) => ({ strings: r.strings, length: r.length })) })) })),
+        groups: p.groups.filter((gr) => gr.fill).map((gr) => ({ count: gr.count, modules: gr.fill.modules, mppts: gr.fill.rows.map((r) => ({ strings: r.strings, length: r.length })) })) })),
       text: summaryText(o), saved_at: new Date().toISOString(),
     };
     await db.put("clients", { ...rec, stringing });
@@ -348,6 +407,7 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
     const { m, s } = ctx;
     const v = s.values;
     const n = o.target_modules;
+    const typedDc = st.last_typed === "dc_kwp";
     const first = o.parts[0].lim;
     const t = first.t, mv = first.mv;
     const tv = m.tc_voc_pct, tm = tcVmpPct(m) || m.tc_voc_pct;
@@ -356,7 +416,7 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
     boxCalc.innerHTML = html`
 <h2>Calculations</h2>
 <ol class="calc">
-  <li><b>Modules for the DC capacity.</b> N = DC ÷ module power = ${num(st.dc_kwp * 1000, 0)} W ÷ ${g(m.wp)} W = ${num((st.dc_kwp * 1000) / m.wp, 2)} → <b>${n} modules</b> (${num((n * m.wp) / 1000)} kWp).</li>
+  <li><b>Panels and DC capacity.</b> ${typedDc && st.dc_kwp ? html`N = DC ÷ module power = ${num(st.dc_kwp * 1000, 0)} W ÷ ${g(m.wp)} W = ${num((st.dc_kwp * 1000) / m.wp, 2)} → <b>${n} panels</b>; ` : ""}DC = N × module power = ${n} × ${g(m.wp)} W = <b>${num((n * m.wp) / 1000)} kWp</b>.</li>
   <li><b>Inverters.</b> AC needed for DC/AC ${g(st.ratio_min)}–${g(st.ratio_max)}: ${num((n * m.wp) / 1000 / st.ratio_max)}–${num((n * m.wp) / 1000 / st.ratio_min)} kW. Chosen: ${o.label} = <b>${num(o.ac_kw)} kW</b>.</li>
   <li><b>Cold cell</b> = lowest temperature = ${f1(t.cell_cold)} °C. <b>Hot cell</b> = T<sub>amb,max</sub> + (NOCT − 20) ÷ 800 × G = ${f1(t.t_max)} + (${f1(t.noct)} − 20) ÷ 800 × ${g(v.hot_irradiance)} = <b>${f1(t.cell_hot)} °C</b>.</li>
   <li><b>Voc cold</b> = Voc × [1 + β<sub>Voc</sub> × (T<sub>cold</sub> − 25)] = ${f2(m.voc)} × [1 + (${g(tv)} %) × (${f1(t.cell_cold)} − 25)] = <b>${f2(mv.voc_cold)} V</b> per module.</li>
@@ -370,17 +430,20 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
 
   function calcInverter(p, m, mv) {
     const inv = p.inverter, lim = p.lim;
-    const lens = [...new Set(p.groups.flatMap((gr) => gr.fill.rows.filter((r) => r.strings).map((r) => r.length)))].sort((a, b) => b - a);
+    const lens = [...new Set(p.groups.flatMap((gr) => (gr.fill ? gr.fill.rows : []).filter((r) => r.strings).map((r) => r.length)))].sort((a, b) => b - a);
+    const per = [...new Set(p.groups.flatMap((gr) => (gr.fill ? gr.fill.rows : []).filter((r) => r.strings).map((r) => r.strings)))].sort();
     const longest = lens[0], shortest = lens[lens.length - 1];
     const hardMax = lim.max.filter((x) => x.hard), hardMin = lim.min.filter((x) => x.hard);
     const capRow = p.caps[0];
     return html`<li><b>${inv.model}: string length.</b>
       ${hardMax.map((x) => html`<div>max. = ⌊${g(x.volts)} V (${x.label.split(" (")[0]}) ÷ ${num(x.per, 2)} V⌋ = ${x.n}</div>`)}
       ${hardMin.map((x) => html`<div>min. = ⌈${g(x.volts)} V (${x.label.split(" (")[0]}) ÷ ${num(x.per, 2)} V⌉ = ${x.n}</div>`)}
-      <div>Allowed <b>${lim.range ? `${lim.range[0]}–${lim.range[1]} modules` : "none"}</b>${lim.preferred && lim.range && lim.preferred[1] < lim.range[1] ? ` (up to ${lim.preferred[1]} keeps Voc cold under the MPPT max. ${g(inv.mppt_max_v)} V, so no cold-morning standby)` : ""}.
-        Used: ${lens.join(" and ")}. Check: ${longest} × ${num(mv.voc_cold, 2)} = ${num(longest * mv.voc_cold, 0)} V ≤ ${g(inv.max_dc_v)} V; ${shortest} × ${num(mv.vmp_hot, 2)} = ${num(shortest * mv.vmp_hot, 0)} V ≥ ${g(inv.mppt_min_v)} V.</div></li>
-    <li><b>${inv.model}: strings per MPPT.</b> ${capRow.isc_limit ? html`⌊${g(capRow.isc_limit)} A ÷ ${num(mv.isc_design, 2)} A⌋ = ${capRow.by_isc} by short-circuit current; ` : ""}${capRow.connectors ? `${capRow.connectors} inputs; ` : ""}${st.series_only ? html`<b>series only → 1 string per MPPT</b>` : html`max. <b>${capRow.cap}</b>`}.
-      ${p.caps.length} MPPTs × ${p.qty} inverter${p.qty > 1 ? "s" : ""}. Modules shared out: ${p.groups.map((gr) => `${gr.count} × ${gr.modules}`).join(" + ")}.</li>`;
+      ${lim.max.filter((x) => !x.hard).map((x) => html`<div>window max. = ⌊${g(x.volts)} V (${x.label.split(" (")[0]}, Voc cold) ÷ ${num(x.per, 2)} V⌋ = ${x.n}</div>`)}
+      ${lim.min.filter((x) => !x.hard).map((x) => html`<div>window min. = ⌈${g(x.volts)} V (${x.label.split(" (")[0]}) ÷ ${num(x.per, 2)} V⌉ = ${x.n}</div>`)}
+      <div>Inside the voltage window: <b>${lim.preferred ? `${lim.preferred[0]}–${lim.preferred[1]} modules per string` : "none"}</b> (absolute limits allow ${lim.range ? lim.range.join("–") : "none"}).
+        ${lens.length ? html`Used: ${lens.join(" and ")}. Check: ${longest} × ${num(mv.voc_cold, 2)} = ${num(longest * mv.voc_cold, 0)} V ≤ ${g(inv.mppt_max_v)} V; ${shortest} × ${num(mv.vmp_hot, 2)} = ${num(shortest * mv.vmp_hot, 0)} V ≥ ${g(inv.mppt_min_v)} V.` : ""}</div></li>
+    <li><b>${inv.model}: strings per MPPT.</b> ${capRow.isc_limit ? html`⌊${g(capRow.isc_limit)} A ÷ ${num(mv.isc_design, 2)} A⌋ = ${capRow.by_isc} by short-circuit current; ` : ""}${capRow.connectors ? `${capRow.connectors} inputs; ` : ""}max. <b>${capRow.cap}</b>. Used: <b>${per.join(" or ") || "—"}</b>${per.some((x) => x > 1) ? " (series alone can't take this inverter's share)" : " (series only)"}.
+      ${p.caps.length} MPPTs × ${p.qty} inverter${p.qty > 1 ? "s" : ""}. Modules shared out: ${p.groups.map((gr) => `${gr.count} × ${gr.modules}`).join(" + ")} (its share of the panels, in proportion to AC power).</li>`;
   }
 
   // ---- details for the chosen inverter, and hand edits -----------------------------------
@@ -392,7 +455,9 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
     if (!o) { boxMore.innerHTML = ""; boxMore.hidden = true; return; }
     boxMore.hidden = false;
     const { m, s } = ctx;
-    edit = { p: o.parts[0], rows: o.parts[0].groups[0].fill.rows.map((r) => ({ ...r })) };
+    const first = o.parts.find((p) => p.groups[0]?.fill) || o.parts[0];
+    if (!first) { boxMore.innerHTML = ""; boxMore.hidden = true; return; }
+    edit = { p: first, rows: (first.groups[0]?.fill?.rows || []).map((r) => ({ ...r })) };
     const p = edit.p, lim = p.lim;
     const rows = lengthTable(lim, s);
     boxMore.innerHTML = html`
@@ -462,13 +527,34 @@ ${res.issues.map((x) => html`<div class="ck-line ck-${x.hard ? "fail" : "warn"} 
   function refresh() {
     readForm();
     ctx = compute();
-    if (!ctx.options || st.choice >= ctx.options.length) st.choice = 0;
-    renderOptions(); renderDesign(); renderCalc(); renderMore();
+    if (st.choice === "custom" ? !ctx.custom : (!ctx.options || st.choice >= ctx.options.length)) st.choice = ctx.options?.length ? 0 : ctx.custom ? "custom" : 0;
+    renderAllButForm();
     remember(st);
   }
-  const later = () => { clearTimeout(timer); timer = setTimeout(() => { st.choice = 0; refresh(); }, 250); };
+  function renderAllButForm() { renderOptions(); renderCustomResult(); renderDesign(); renderCalc(); renderMore(); }
+  // panels <-> DC capacity: whichever was typed sets the other (from the module's Wp)
+  function link(source) {
+    const wp = wpOf();
+    const fm = form.elements.modules, fd = form.elements.dc_kwp;
+    if (!wp) return;
+    if (source === "modules") {
+      const n = numOrNull(fm.value);
+      fd.value = n ? g(Math.round(n * wp) / 1000) : "";
+    } else {
+      const dc = numOrNull(fd.value);
+      fm.value = dc ? String(Math.max(1, Math.round((dc * 1000) / wp))) : "";
+    }
+  }
+  const later = (e) => {
+    const name = e?.target?.name;
+    if (name === "modules" || name === "dc_kwp") { st.last_typed = name; link(name); }
+    if (name === "module_id") { st.module_id = numOrNull(form.elements.module_id.value); link(st.last_typed === "modules" ? "modules" : "dc_kwp"); }
+    clearTimeout(timer); timer = setTimeout(() => { if (st.choice !== "custom") st.choice = 0; refresh(); }, 250);
+  };
   form.addEventListener("input", later);
   form.addEventListener("change", later);
   form.addEventListener("submit", (e) => e.preventDefault());
+  readForm(); ctx = compute();
+  renderCustomForm();
   refresh();
 }

@@ -72,23 +72,36 @@ test("modules split over inverters", () => {
   assert.deepEqual(splitModules(120, 2), [{ count: 2, modules: 60 }]);
 });
 
-test("proposed designs: offer deck ratio band, series-only, every module placed", async () => {
-  const { proposeDesigns } = await import("../js/sizing/stringing.js");
-  const m = JINKO_MODULES.find((x) => x.model.startsWith("JKM620"));
+test("proposed designs: whole panel count, inside the MPPT voltage window, ratio band", async () => {
+  const { proposeDesigns, designFor } = await import("../js/sizing/stringing.js");
   const d = { t_min_c: 0, t_max_c: 60 };
-  for (const dc of [10, 50, 100, 250]) {
-    const opts = proposeDesigns(m, invs, d, s, { dc, ratioMin: 0.8, ratioMax: 1.25, seriesOnly: true });
-    assert.ok(opts.length, `${dc} kWp`);
+  for (const m of JINKO_MODULES) for (const n of [14, 81, 161, 474, 1400]) {
+    const opts = proposeDesigns(m, invs, d, s, { modules: n, ratioMin: 0.8, ratioMax: 1.25 });
     for (const o of opts) {
-      assert.ok(o.ratio >= 0.8 - 1e-9 && o.ratio <= 1.25 + 1e-9, `${dc}: ${o.label} ratio ${o.ratio}`);
-      for (const p of o.parts) for (const gr of p.groups) {
-        assert.ok(gr.fill.rows.every((r) => (r.strings || 0) <= 1), `${o.label} has parallel strings`);
-        assert.ok(!gr.check.mppts.some((r) => r.status === "fail"), o.label);
+      assert.equal(o.modules, n, `${m.model} ${n}: ${o.label} places every panel`);
+      assert.ok(o.ratio >= 0.8 - 1e-9 && o.ratio <= 1.25 + 1e-9, `${o.label} ratio ${o.ratio}`);
+      for (const p of o.parts) for (const gr of p.groups) for (const r of gr.fill.rows) if (r.strings) {
+        assert.ok(r.length * p.lim.mv.voc_cold <= p.inverter.mppt_max_v + 1e-9, `${o.label}: ${r.length} modules exceed the MPPT max.`);
+        assert.ok(r.length * p.lim.mv.vmp_hot >= p.inverter.mppt_min_v - 1e-9, `${o.label}: ${r.length} modules under the MPPT min.`);
       }
+      for (const p of o.parts) for (const gr of p.groups) assert.ok(!gr.check.mppts.some((r) => r.status === "fail"), o.label);
     }
-    assert.ok(opts[0].fits, `${dc} kWp: best option places every module`);
   }
-  // narrower band is respected
-  const tight = proposeDesigns(m, invs, d, s, { dc: 100, ratioMin: 0.95, ratioMax: 1.05 });
-  assert.ok(tight.every((o) => o.ratio >= 0.95 - 1e-9 && o.ratio <= 1.05 + 1e-9));
+});
+
+test("341.28 kWp of 720 Wp panels: 2 × SG150CX is proposed and checks out", async () => {
+  const { proposeDesigns, designFor } = await import("../js/sizing/stringing.js");
+  const m = JINKO_MODULES.find((x) => x.wp === 720);
+  const d = { t_min_c: 0, t_max_c: 60 };
+  const opts = proposeDesigns(m, invs, d, s, { modules: 474 });
+  assert.ok(opts.some((o) => o.label === "2 × SG150CX"), opts.map((o) => o.label).join(", "));
+  const mine = designFor(m, [{ inverter: byModel("SG150CX"), qty: 2 }], d, s, { modules: 474 });
+  assert.ok(mine.ok, mine.issues.join("; "));
+  assert.equal(mine.modules, 474);
+  // series alone can't: 7 MPPTs × 1 string × 19 modules = 133 per inverter
+  assert.ok(mine.parallel > 0);
+  // a configuration that can't take every panel is reported, not hidden
+  const small = designFor(m, [{ inverter: byModel("SG50CX-P2"), qty: 1 }], d, s, { modules: 474 });
+  assert.equal(small.ok, false);
+  assert.ok(small.issues.some((x) => /of the 474 modules fit/.test(x)), small.issues.join("; "));
 });
