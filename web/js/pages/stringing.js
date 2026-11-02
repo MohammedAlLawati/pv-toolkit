@@ -14,7 +14,7 @@ import { setTitle } from "../app.js";
 
 const KEY = "pv-toolkit-stringing";
 const MARK = { pass: "✓", warn: "!", fail: "✕" };
-const DEFAULTS = { t_min_c: 0, t_max_c: 60, ratio_min: 0.8, ratio_ok: 1.2, ratio_max: 1.25, series_only: true, scope: "any", hv_connectors: false };
+const DEFAULTS = { t_min_c: 0, t_max_c: 60, ratio_min: 0.8, ratio_ok: 1.2, ratio_max: 1.25, one_string: false, scope: "any", hv_connectors: false };
 const TYPES = { residential: "Residential", commercial: "Commercial", other: "Other" };
 const r2 = (x) => (x === null || x === undefined ? "—" : Number(x).toFixed(2));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -101,7 +101,7 @@ function calculator(main, all, client) {
     if (fromClient.module_id) st.module_id = fromClient.module_id;
     st.modules = null;
     if (saved) Object.assign(st, { module_id: saved.module_id ?? st.module_id, dc_kwp: saved.dc_target_kwp ?? st.dc_kwp, modules: saved.target_modules ?? null,
-      t_min_c: saved.t_min_c ?? st.t_min_c, t_max_c: saved.t_max_c ?? st.t_max_c, series_only: saved.series_only ?? st.series_only,
+      t_min_c: saved.t_min_c ?? st.t_min_c, t_max_c: saved.t_max_c ?? st.t_max_c, one_string: saved.one_string ?? st.one_string,
       ratio_min: saved.ratio_min ?? st.ratio_min, ratio_ok: saved.ratio_ok ?? st.ratio_ok, ratio_max: saved.ratio_max ?? st.ratio_max });
   }
   if (!all.module.get(st.module_id)) st.module_id = all.modules.find(moduleReady)?.id ?? null;
@@ -143,7 +143,7 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
     </div>
     <p class="small muted">Same rule as the offer deck: designs from the lowest to the overload max. are proposed, and anything above the normal max. is marked as overloaded.</p>
     <div class="fields one">
-      <label class="check"><input type="checkbox" name="series_only" value="yes" ${chk(st.series_only)}> Prefer series strings (one string per MPPT; parallel only on inverters where the panels don't fit otherwise)</label>
+      <label class="check"><input type="checkbox" name="one_string" value="yes" ${chk(st.one_string)}> One string per MPPT only (S = 1; otherwise every usable input on each MPPT is filled, as the current and connector limits allow)</label>
       <label class="check"><input type="checkbox" name="hv_connectors" value="yes" ${chk(st.hv_connectors)}> High-voltage DC connectors fitted (e.g. MC4 Evo2)</label>
       <label>Rule profile
         <select name="rule_profile_id"><option value="">Default</option>
@@ -172,7 +172,7 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
     st.module_id = numOrNull(fd.get("module_id"));
     st.scope = String(fd.get("scope") || "any");
     for (const k of ["t_min_c", "t_max_c", "ratio_min", "ratio_ok", "ratio_max"]) st[k] = numOrNull(fd.get(k)) ?? DEFAULTS[k];
-    st.series_only = fd.get("series_only") === "yes";
+    st.one_string = fd.get("one_string") === "yes";
     st.hv_connectors = fd.get("hv_connectors") === "yes";
     st.rule_profile_id = numOrNull(fd.get("rule_profile_id"));
   }
@@ -186,7 +186,7 @@ ${ready ? "" : html`<div class="flash warn">The equipment library needs at least
     if (!moduleReady(m)) return { s, d, m, msg: html`${moduleLabel(m)} has no electrical values yet. <a href="#/library/module/${m.id}">Add them in the library</a>.` };
     if (!st.modules) return { s, d, m, msg: "Enter the number of panels or the DC capacity." };
     const invs = all.inverters.filter((v) => st.scope === "any" || v.category === st.scope);
-    const opts = { modules: st.modules, ratioMin: st.ratio_min, ratioMax: st.ratio_max, preferSeries: st.series_only };
+    const opts = { modules: st.modules, ratioMin: st.ratio_min, ratioMax: st.ratio_max, seriesOnly: st.one_string };
     const options = proposeDesigns(m, invs, d, s, { ...opts, limit: 8 });
     const parts = st.custom.map((c) => ({ inverter: all.inverter.get(c.inverter_id), qty: c.qty })).filter((p) => p.inverter && p.qty > 0);
     const custom = parts.length ? { ...designFor(m, parts, d, s, opts), custom: true } : null;
@@ -216,7 +216,7 @@ ${options.length ? html`<div class="table-scroll"><table class="options">
       <td>${o.parallel ? html`<span class="pill" title="MPPTs with two or more strings in parallel">parallel on ${o.parallel}</span> ` : html`<span class="pill">series</span> `}${o.warnings ? html`<span class="pill warn" title="Passes the hard rules, with warnings">${plural(o.warnings, "warning")}</span>` : html`<span class="pill ok">passes</span>`}</td></tr>`;
   })}</tbody>
 </table></div>
-<p class="small muted">Only configurations that take all ${n} panels, with every string inside the inverter's MPPT voltage window at ${g(st.t_min_c)}–${g(st.t_max_c)} °C. ${st.series_only ? "All-series configurations first, then " : ""}fewest inverters, then the DC/AC ratio closest to 1.0 (the offer deck's order). Ratios above ${g(st.ratio_ok)} are overloaded (allowed up to ${g(st.ratio_max)}).</p>`
+<p class="small muted">Only configurations that take all ${n} panels, with every string inside the inverter's MPPT voltage window at ${g(st.t_min_c)}–${g(st.t_max_c)} °C. Strings follow the fill-all-usable-inputs-evenly method${st.one_string ? " with one string per MPPT" : ""}; configurations in the offer deck's order: fewest inverters, then the DC/AC ratio closest to 1.0 (the offer deck's order). Ratios above ${g(st.ratio_ok)} are overloaded (allowed up to ${g(st.ratio_max)}).</p>`
   : html`<div class="flash warn">No inverter configuration in the library takes all ${n} panels with DC/AC ${g(st.ratio_min)}–${g(st.ratio_max)} and every string inside the MPPT voltage window. Try another inverter range, or enter your own configuration below to see what doesn't fit.</div>`}`;
     boxOptions.querySelectorAll("[data-pick]").forEach((tr) => tr.addEventListener("click", () => {
       st.choice = Number(tr.dataset.pick);
@@ -339,7 +339,7 @@ ${c.issues.map((x) => html`<div class="ck-line ck-fail small">${x}</div>`)}
     const strings = allGroups.reduce((t, { gr }) => t + gr.count * gr.fill.strings, 0);
     const lengths = [...new Set(allGroups.flatMap(({ gr }) => gr.fill.rows.filter((r) => r.strings).map((r) => r.length)))].sort((a, b) => b - a);
     const perMppt = [...new Set(allGroups.flatMap(({ gr }) => gr.fill.rows.filter((r) => r.strings).map((r) => r.strings)))].sort();
-    const warns = allGroups.flatMap(({ p, gr }) => gr.check.mppts.flatMap((r) => r.problems.map((x) => `${p.inverter.model} MPPT ${r.index}: ${x.text}`)));
+    const warns = allGroups.flatMap(({ p, gr }) => [...gr.check.mppts.flatMap((r) => r.problems.map((x) => `${p.inverter.model} MPPT ${r.index}: ${x.text}`)), ...(gr.check.headroom ? [`${p.inverter.model}: ${gr.check.headroom}`] : [])]);
     boxDesign.innerHTML = html`
 <div class="panel-head"><h2>Stringing: ${o.label}</h2><span class="small muted">${moduleLabel(m)}</span></div>
 <div class="summary six">
@@ -389,7 +389,7 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
     const rec = all.client.get(client.id);
     const stringing = {
       label: o.label, module_id: ctx.m.id, dc_target_kwp: st.dc_kwp, target_modules: st.modules, modules: o.modules, dc_kwp: o.dc_kwp, ac_kw: o.ac_kw, ratio: o.ratio,
-      t_min_c: st.t_min_c, t_max_c: st.t_max_c, series_only: st.series_only, ratio_min: st.ratio_min, ratio_ok: st.ratio_ok, ratio_max: st.ratio_max,
+      t_min_c: st.t_min_c, t_max_c: st.t_max_c, one_string: st.one_string, ratio_min: st.ratio_min, ratio_ok: st.ratio_ok, ratio_max: st.ratio_max,
       inverters: o.parts.map((p) => ({ inverter_id: p.inverter.id, qty: p.qty,
         groups: p.groups.filter((gr) => gr.fill).map((gr) => ({ count: gr.count, modules: gr.fill.modules, mppts: gr.fill.rows.map((r) => ({ strings: r.strings, length: r.length })) })) })),
       text: summaryText(o), saved_at: new Date().toISOString(),
@@ -423,27 +423,52 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
   <li><b>Vmp coefficient</b> = ${has(m.tc_pmax_pct) && has(m.tc_isc_pct) ? `Pmax coefficient − Isc coefficient = ${g(m.tc_pmax_pct)} − (${g(m.tc_isc_pct)}) = ${g(tm)} %/°C` : `Voc coefficient = ${g(tm)} %/°C (no Pmax coefficient on the datasheet)`}.
     <b>Vmp cold</b> = ${f2(m.vmp)} × [1 + (${g(tm)} %) × (${f1(t.cell_cold)} − 25)] = <b>${f2(mv.vmp_cold)} V</b>; <b>Vmp hot</b> = ${f2(m.vmp)} × [1 + (${g(tm)} %) × (${f1(t.cell_hot)} − 25)] = <b>${f2(mv.vmp_hot)} V</b>.</li>
   <li><b>Design currents.</b> Isc = Isc<sub>STC</sub> × K<sub>I</sub>${m.bifaciality ? " × bifacial gain" : ""} = ${f2(m.isc)} × ${g(v.isc_factor)}${m.bifaciality ? ` × ${num(gain, 3)} (${g(m.bifaciality)} × ${g(v.rear_irradiance)} W/m² ÷ 1000)` : ""} = <b>${f2(mv.isc_design)} A</b> per string; operating Imp = ${f2(m.imp)}${m.bifaciality ? ` × ${num(gain, 3)}` : ""} = <b>${f2(mv.imp_design)} A</b>.</li>
-  ${o.parts.map((p) => calcInverter(p, m, mv))}
+  ${o.parts.flatMap((p) => calcInverter(p, m, mv))}
   <li><b>Result.</b> ${o.modules} modules × ${g(m.wp)} W = <b>${num(o.dc_kwp)} kWp</b> on ${num(o.ac_kw)} kW → DC/AC = ${num(o.dc_kwp)} ÷ ${num(o.ac_kw)} = <b>${r2(o.ratio)}</b> (${bandText(o.ratio)}; normal up to ${g(st.ratio_ok)}, overload up to ${g(st.ratio_max)}).</li>
 </ol>`;
   }
 
+  // The fill-all-usable-inputs-evenly method, steps 2–9, for one inverter model.
   function calcInverter(p, m, mv) {
-    const inv = p.inverter, lim = p.lim;
-    const lens = [...new Set(p.groups.flatMap((gr) => (gr.fill ? gr.fill.rows : []).filter((r) => r.strings).map((r) => r.length)))].sort((a, b) => b - a);
-    const per = [...new Set(p.groups.flatMap((gr) => (gr.fill ? gr.fill.rows : []).filter((r) => r.strings).map((r) => r.strings)))].sort();
-    const longest = lens[0], shortest = lens[lens.length - 1];
-    const hardMax = lim.max.filter((x) => x.hard), hardMin = lim.min.filter((x) => x.hard);
-    const capRow = p.caps[0];
-    return html`<li><b>${inv.model}: string length.</b>
-      ${hardMax.map((x) => html`<div>max. = ⌊${g(x.volts)} V (${x.label.split(" (")[0]}) ÷ ${num(x.per, 2)} V⌋ = ${x.n}</div>`)}
-      ${hardMin.map((x) => html`<div>min. = ⌈${g(x.volts)} V (${x.label.split(" (")[0]}) ÷ ${num(x.per, 2)} V⌉ = ${x.n}</div>`)}
-      ${lim.max.filter((x) => !x.hard).map((x) => html`<div>window max. = ⌊${g(x.volts)} V (${x.label.split(" (")[0]}, Voc cold) ÷ ${num(x.per, 2)} V⌋ = ${x.n}</div>`)}
-      ${lim.min.filter((x) => !x.hard).map((x) => html`<div>window min. = ⌈${g(x.volts)} V (${x.label.split(" (")[0]}) ÷ ${num(x.per, 2)} V⌉ = ${x.n}</div>`)}
-      <div>Inside the voltage window: <b>${lim.preferred ? `${lim.preferred[0]}–${lim.preferred[1]} modules per string` : "none"}</b> (absolute limits allow ${lim.range ? lim.range.join("–") : "none"}).
-        ${lens.length ? html`Used: ${lens.join(" and ")}. Check: ${longest} × ${num(mv.voc_cold, 2)} = ${num(longest * mv.voc_cold, 0)} V ≤ ${g(inv.mppt_max_v)} V; ${shortest} × ${num(mv.vmp_hot, 2)} = ${num(shortest * mv.vmp_hot, 0)} V ≥ ${g(inv.mppt_min_v)} V.` : ""}</div></li>
-    <li><b>${inv.model}: strings per MPPT.</b> ${capRow.isc_limit ? html`⌊${g(capRow.isc_limit)} A ÷ ${num(mv.isc_design, 2)} A⌋ = ${capRow.by_isc} by short-circuit current; ` : ""}${capRow.connectors ? `${capRow.connectors} inputs; ` : ""}max. <b>${capRow.cap}</b>. Used: <b>${per.join(" or ") || "—"}</b>${per.some((x) => x > 1) ? " (series alone can't take this inverter's share)" : " (series only)"}.
-      ${p.caps.length} MPPTs × ${p.qty} inverter${p.qty > 1 ? "s" : ""}. Modules shared out: ${p.groups.map((gr) => `${gr.count} × ${gr.modules}`).join(" + ")} (its share of the panels, in proportion to AC power).</li>`;
+    const inv = p.inverter, x = p.method, f2 = (v) => num(v, 2);
+    const multi = ctx && chosen()?.parts.length > 1;
+    const head = `${inv.model}${p.qty > 1 ? ` (× ${p.qty})` : ""}`;
+    const sTxt = (c) => [c.connectors ? `${c.connectors} inputs` : null,
+      c.isc_limit ? `⌊${g(c.isc_limit)} ÷ ${f2(mv.isc_design)}⌋ = ${c.by_isc} by Isc` : null,
+      c.imp_limit ? `⌊${g(c.imp_limit)} ÷ ${f2(mv.imp_design)}⌋ = ${c.by_imp} by current` : null].filter(Boolean).join(", ");
+    // MPPTs with identical limits are shown once
+    const sGroups = [];
+    for (const c of x.mppt) {
+      const key = sTxt(c) + "|" + c.S;
+      const last = sGroups[sGroups.length - 1];
+      if (last && last.key === key) last.to = c.index; else sGroups.push({ key, from: c.index, to: c.index, c });
+    }
+    const out = [html`<li><b>${head}: string length window.</b>
+      <div>L<sub>max</sub> = ⌊${g(x.vmax[1])} V (${x.vmax[0]}) ÷ ${f2(mv.voc_cold)} V (Voc cold)⌋ = <b>${x.Lmax}</b></div>
+      <div>L<sub>min</sub> = ⌈${g(x.vmin[1])} V (${x.vmin[0]}) ÷ ${f2(mv.vmp_hot)} V (Vmp hot)⌉ = <b>${x.Lmin}</b></div>
+      <div>Every string must be ${x.Lmin}–${x.Lmax} modules long.</div></li>`,
+    html`<li><b>${head}: strings per MPPT (S).</b> S = min(inputs, Isc limit ÷ design Isc, current limit ÷ design Imp)${st.one_string ? ", capped at 1 (one string per MPPT)" : ""}:
+      ${sGroups.map((gr) => html`<div>MPPT ${gr.from === gr.to ? gr.from : `${gr.from}–${gr.to}`}: ${sTxt(gr.c) || "no limits given"} → S = <b>${gr.c.S}</b></div>`)}</li>`,
+    html`<li><b>${head}: usable inputs.</b> U = ${x.perInv} per inverter × ${p.qty} = <b>${x.U}</b>.</li>`];
+    if (x.nmin === undefined) return [...out, html`<li><b>${head}:</b> ${x.issues.join(" ")}</li>`];
+    out.push(html`<li><b>${head}: number of strings.</b> ${multi ? `This model's share of the panels (in proportion to AC power): N = ${p.share}. ` : ""}
+      n<sub>min</sub> = ⌈N ÷ L<sub>max</sub>⌉ = ⌈${x.N} ÷ ${x.Lmax}⌉ = ${x.nmin}; n<sub>max</sub> = min(U, ⌊N ÷ L<sub>min</sub>⌋) = min(${x.U}, ${Math.floor(x.N / x.Lmin + 1e-9)}) = ${x.nmax}.
+      ${x.ok ? html`Use <b>n = ${x.n}</b>${x.reduced ? ` (n reduced by ${x.reduced} so the strings fit the window and share evenly)` : " (fill every usable input)"}.` : html`<b>${x.issues.join(" ")}</b>`}</li>`);
+    if (!x.ok) return out;
+    out.push(html`<li><b>${head}: string lengths.</b> L = ⌊N ÷ n⌋ = ⌊${x.N} ÷ ${x.n}⌋ = ${x.L}; r = N − n × L = ${x.N} − ${x.n} × ${x.L} = ${x.r}.
+      → <b>${x.r ? `${x.r} strings of ${x.L + 1} and ${x.n - x.r} of ${x.L}` : `${x.n} strings of ${x.L}`}</b> = ${x.r ? `${x.r} × ${x.L + 1} + ${x.n - x.r} × ${x.L}` : `${x.n} × ${x.L}`} = ${x.N} modules.</li>`);
+    out.push(html`<li><b>${head}: shared between inverters.</b> ${x.inverters.map((v, i) => `Inverter ${i + 1}: ${v.longs ? `${v.longs} × ${x.L + 1}` : ""}${v.longs && v.strings - v.longs ? " + " : ""}${v.strings - v.longs ? `${v.strings - v.longs} × ${x.L}` : ""} = ${v.modules} modules`).join("; ")}.
+      Strings on the same MPPT have the same length.</li>`);
+    const longest = x.r ? x.L + 1 : x.L, shortest = x.L;
+    const rated = inv.rated_input_v;
+    const heads = p.groups.map((gr) => gr.check.headroom).filter(Boolean);
+    out.push(html`<li><b>${head}: final checks.</b>
+      <div>Longest: ${longest} × ${f2(mv.voc_cold)} = ${num(longest * mv.voc_cold, 0)} V Voc cold ≤ ${g(x.vmax[1])} V ✓</div>
+      <div>Shortest: ${shortest} × ${f2(mv.vmp_hot)} = ${num(shortest * mv.vmp_hot, 0)} V Vmp hot ≥ ${g(x.vmin[1])} V ✓</div>
+      <div>Current: S × design Isc ≤ the MPPT's Isc limit on every MPPT ✓</div>
+      ${rated ? html`<div>Vmp at STC: ${shortest}–${longest} × ${f2(m.vmp)} = ${num(shortest * m.vmp, 0)}–${num(longest * m.vmp, 0)} V (rated input voltage ${g(rated)} V)</div>` : ""}
+      ${heads.map((h) => html`<div class="ck-line ck-warn">${h}</div>`)}</li>`);
+    return out;
   }
 
   // ---- details for the chosen inverter, and hand edits -----------------------------------
@@ -503,7 +528,7 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
   function updateEdit() {
     const { m, s } = ctx, p = edit.p;
     const caps = mpptCapacity(p.inverter, p.lim, s);
-    const res = checkLayout(m, p.inverter, p.lim, caps, edit.rows, s, { seriesOnly: st.series_only });
+    const res = checkLayout(m, p.inverter, p.lim, caps, edit.rows, s, { seriesOnly: st.one_string });
     boxMore.querySelectorAll("tr[data-row]").forEach((tr, i) => {
       const r = res.mppts[i];
       const set = (c, v) => { tr.querySelector(`[data-c=${c}]`).innerHTML = v; };

@@ -55,20 +55,25 @@ A private web app for solar PV work: clients, projects, authority paperwork, and
   required capacity fills in, and the result can be saved on the client as `client.stringing`) or to work standalone.
   The client page can open it directly with `#/stringing?client=<id>`.
 - **Inputs:** DC capacity (kWp), module, inverter range, operating temperatures (default 0–60 °C), DC/AC limits
-  (default 0.8 lowest, 1.2 normal max., 1.25 overload max., all editable), series strings only (default on),
+  (default 0.8 lowest, 1.2 normal max., 1.25 overload max., all editable), one string per MPPT only (default off),
   high-voltage connectors and the rule profile.
 - **Proposed configurations:** inverter combinations from the library picked with the offer deck's logic
   (`suggestInverters`), each strung by `designFor`. Only configurations that take every panel and keep every string
   inside the inverter's MPPT voltage window (Voc at the lowest temperature ≤ MPPT max., Vmp hot ≥ MPPT min. and
-  start-up voltage) are listed. Series strings are preferred; parallel strings are used only on inverters whose share
-  doesn't fit otherwise. Ratios above the normal max. are marked as overloaded.
+  start-up voltage) are listed. Ratios above the normal max. are marked as overloaded.
+- **Stringing method: fill all usable inputs evenly.** Per inverter model: L max = ⌊lowest max. voltage ÷ Voc cold⌋,
+  L min = ⌈highest min. voltage ÷ Vmp hot⌉; S per MPPT = min(inputs, Isc limit ÷ design Isc, current limit ÷
+  design Imp); U = ΣS; n = min(U, ⌊N ÷ L min⌋) (n ≥ ⌈N ÷ L max⌉, else add inverter capacity); L = ⌊N ÷ n⌋,
+  r = N − nL gives r strings of L + 1 and n − r of L; strings are shared evenly between inverters, strings on one
+  MPPT have the same length, and a Voc cold within 5 % of the MPPT max. is a warning. Example: 370 × 720 Wp on
+  2 × SG125CX-P2 gives 10 × 16 + 14 × 15, i.e. 5 × 16 + 7 × 15 per inverter.
 - **Number of panels ⇄ DC capacity:** type either; the other follows from the module's Wp.
 - **Your own configuration:** pick inverter models and quantities; the tool strings them, says what doesn't work
   (panels that don't fit, ratio, voltages, currents) and can show the diagram for it.
 - **Stringing diagram** per inverter: MPPTs used, strings per MPPT and modules per string, plus every calculation
   step (module count, temperatures, Voc/Vmp at temperature, string length limits, strings per MPPT, DC/AC).
 - Voltage-by-length and MPPT-limit tables, and a hand editor for one inverter, are under the diagram.
-- Code: `web/js/sizing/stringing.js` (`proposeDesigns`, `stringLimits`, `fillLayout`, `checkLayout`) and
+- Code: `web/js/sizing/stringing.js` (`proposeDesigns`, `designFor`, `methodLayout`, `stringLimits`, `checkLayout`) and
   `web/js/pages/stringing.js`; tests in `web/tests/stringing.test.mjs`.
 
 ## What Phase 3 adds: yield simulation and report (static app, `web/`)

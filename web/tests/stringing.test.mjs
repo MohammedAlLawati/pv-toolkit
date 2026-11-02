@@ -103,5 +103,32 @@ test("341.28 kWp of 720 Wp panels: 2 × SG150CX is proposed and checks out", asy
   // a configuration that can't take every panel is reported, not hidden
   const small = designFor(m, [{ inverter: byModel("SG50CX-P2"), qty: 1 }], d, s, { modules: 474 });
   assert.equal(small.ok, false);
-  assert.ok(small.issues.some((x) => /of the 474 modules fit/.test(x)), small.issues.join("; "));
+  assert.ok(small.issues.some((x) => /add inverter capacity/.test(x)), small.issues.join("; "));
+});
+
+test("method worked example: 370 × 720 Wp on 2 × SG125CX-P2 fills every input evenly", async () => {
+  const { designFor } = await import("../js/sizing/stringing.js");
+  const m = JINKO_MODULES.find((x) => x.wp === 720);
+  const d = { t_min_c: 0, t_max_c: 60 };
+  const des = designFor(m, [{ inverter: byModel("SG125CX-P2"), qty: 2 }], d, s, { modules: 370 });
+  assert.ok(des.ok, des.issues.join("; "));
+  assert.equal(des.modules, 370);
+  const x = des.parts[0].method;
+  assert.equal(x.U, 24);
+  assert.equal(x.n, 24);
+  assert.equal(x.L, 15);
+  assert.equal(x.r, 10);
+  for (const inv of x.inverters) {
+    assert.equal(inv.strings, 12);
+    assert.equal(inv.longs, 5);
+    assert.equal(inv.modules, 5 * 16 + 7 * 15);
+    // strings sharing an MPPT have the same length
+    for (const r of inv.rows) if (r.strings) assert.ok(r.length === 15 || r.length === 16);
+  }
+  // one string per MPPT halves the usable inputs on the SG150CX (7 MPPTs, 2 strings each)
+  const two = designFor(m, [{ inverter: byModel("SG150CX"), qty: 2 }], d, s, { modules: 474 });
+  const one = designFor(m, [{ inverter: byModel("SG150CX"), qty: 2 }], d, s, { modules: 474, seriesOnly: true });
+  assert.equal(two.parts[0].method.U, 28);
+  assert.equal(one.parts[0].method.U, 14);
+  assert.equal(one.ok, false);
 });
