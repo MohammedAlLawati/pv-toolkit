@@ -74,7 +74,7 @@ export async function index(main) {
   main.innerHTML = html`
 <div class="head">
   <div><h1>String &amp; inverter sizing</h1><div class="muted">The rules check for every project. Open one to get a recommended design or change it.</div></div>
-  <div class="actions"><a class="btn" href="#/rules">Design rules</a></div>
+  <div class="actions"><a class="btn" href="#/stringing">Stringing calculator</a><a class="btn" href="#/rules">Design rules</a></div>
 </div>
 <div class="panel">
   ${rows.length ? html`<table>
@@ -130,7 +130,7 @@ export async function sizing(main, { params, query }) {
   main.innerHTML = html`
 <div class="head">
   <div><h1>String &amp; inverter sizing</h1><div class="muted"><a href="#/projects/${p.id}">${p.name}</a> · ${p.client?.name}</div></div>
-  <div class="actions"><a class="btn" href="#/projects/${p.id}/yield">Yield simulation</a><a class="btn" href="#/projects/${p.id}">Back to project</a></div>
+  <div class="actions"><a class="btn" href="#/stringing?project=${p.id}">Stringing calculator</a><a class="btn" href="#/projects/${p.id}/yield">Yield simulation</a><a class="btn" href="#/projects/${p.id}">Back to project</a></div>
 </div>
 
 <div class="panel">

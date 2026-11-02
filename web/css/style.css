@@ -386,6 +386,18 @@ details summary { cursor: pointer; font-weight: 600; }
 .shell.gate main { max-width: none; }
 .welcome .signin button { width: 100%; justify-content: center; }
 
+/* stringing calculator */
+table.str-table tr.out td { opacity: .6; }
+table.str-table td, table.str-layout td { white-space: nowrap; }
+table.str-table td.small { white-space: normal; }
+table.str-layout input { width: 64px; padding: 4px 6px; }
+table.str-layout td[data-c=check] { white-space: normal; min-width: 180px; }
+table.str-layout tr.ck-fail td[data-c=check] { color: var(--err); }
+table.str-layout tr.ck-warn td[data-c=check] { color: var(--warn); }
+#str-layout .bar { position: static; background: none; padding: 10px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.grid-sizing > * { min-width: 0; }
+.grid-sizing select { max-width: 100%; }
+
 /* Document preview (forms): docx-preview pages, scaled to the panel width */
 .preview-area { overflow: hidden; }
 .docx-preview .docx-wrapper { background: var(--line); padding: 16px; width: max-content; }
