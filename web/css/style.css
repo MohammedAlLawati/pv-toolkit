@@ -435,3 +435,8 @@ ol.calc li { margin-bottom: 8px; }
 ol.calc li div { margin-left: 4px; font-variant-numeric: tabular-nums; }
 #str-more details { margin-bottom: 10px; }
 #str-more details > *:not(summary) { margin-top: 10px; }
+.dg-wire.off { stroke: #b8c1cd; stroke-dasharray: 3 3; }
+.dg-off.end { text-anchor: end; }
+.dg-bus { fill: none; stroke: var(--sun); stroke-width: 2; }
+.dg-bus.off { stroke: #5d6b7c; }
+.dg-psub { font: 10.5px sans-serif; fill: #c9d4e2; }

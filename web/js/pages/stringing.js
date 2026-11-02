@@ -213,20 +213,27 @@ ${options.length ? html`<div class="table-scroll"><table class="options">
 
   // ---- the diagram -----------------------------------------------------------------------
 
-  function diagram(inv, rows, count) {
-    const W = 760, MOD = 22, GAP = 3, PORT_X = 540, BOX_W = 210, SLOTS = 9;
-    const lines = [];
-    let y = 16;
-    const ports = [];
+  // One row per DC input; inputs are grouped by MPPT inside the inverter. A used input carries
+  // one series string; spare inputs are drawn grey.
+  function diagram(inv, rows, count, caps) {
+    const W = 760, MOD = 22, GAP = 3, PORT_X = 530, BOX_W = 222, SLOTS = 9, ROW = 28;
+    const lines = [], ports = [], mppts = [];
+    let y = 14;
     rows.forEach((r, i) => {
-      const nStr = Math.max(r.strings || 0, 1);
-      const top = y;
+      const n = r.strings || 0;
+      const inputs = Math.max(caps[i]?.connectors || 1, n, 1);
       const ys = [];
-      for (let k = 0; k < nStr; k++) {
-        const cy = top + k * 30 + 14;
+      for (let k = 0; k < inputs; k++) {
+        const cy = y + k * ROW + 12;
         ys.push(cy);
-        if (!r.strings) continue;
-        // modules in series: all of them if few, else the first few, a gap, the last two
+        const used = k < n;
+        ports.push({ cy, used, k });
+        if (!used) {
+          lines.push(`<line x1="${PORT_X - 46}" y1="${cy}" x2="${PORT_X}" y2="${cy}" class="dg-wire off"/>`);
+          lines.push(`<text x="${PORT_X - 52}" y="${cy + 4}" class="dg-off end">${n ? "spare input" : k === 0 ? `MPPT ${i + 1} not used` : ""}</text>`);
+          continue;
+        }
+        // modules in series: all of them if few, else the first five, a gap, the last two
         const L = r.length;
         const shown = L <= SLOTS ? [...Array(L).keys()] : [0, 1, 2, 3, 4, -1, L - 2, L - 1];
         let x = 12;
@@ -237,26 +244,31 @@ ${options.length ? html`<div class="table-scroll"><table class="options">
           x += MOD + GAP;
         });
         lines.push(`<text x="${x + 6}" y="${cy + 4}" class="dg-txt">${L} in series</text>`);
-        lines.push(`<path d="M${x + 96} ${cy} H${PORT_X - 70} L${PORT_X - 20} ${top + nStr * 15} H${PORT_X}" class="dg-wire"/>`);
+        lines.push(`<line x1="${x + 92}" y1="${cy}" x2="${PORT_X}" y2="${cy}" class="dg-wire"/>`);
       }
-      const py = top + nStr * 15;
-      ports.push({ i, py, used: !!r.strings, text: r.strings ? `${r.strings} × ${r.length}` : "not used" });
-      if (!r.strings) lines.push(`<text x="12" y="${top + 18}" class="dg-off">MPPT ${i + 1}: no string</text>`);
-      y = top + nStr * 30 + 10;
+      mppts.push({ i, top: ys[0], bottom: ys[ys.length - 1], used: n > 0, inputs, n });
+      y += inputs * ROW + 12;
     });
-    const H = Math.max(y + 6, 80);
-    lines.push(`<rect x="${PORT_X}" y="6" width="${BOX_W}" height="${H - 12}" rx="6" class="dg-inv"/>`);
-    lines.push(`<text x="${PORT_X + 140}" y="${H / 2 - 4}" class="dg-invtxt">${inv.model}</text>`);
-    lines.push(`<text x="${PORT_X + 140}" y="${H / 2 + 12}" class="dg-invsub">${g(inv.ac_kw)} kW${count > 1 ? ` · × ${count}` : ""}</text>`);
+    const H = Math.max(y + 4, 80);
+    lines.push(`<rect x="${PORT_X}" y="4" width="${BOX_W}" height="${H - 8}" rx="6" class="dg-inv"/>`);
+    lines.push(`<text x="${PORT_X + 162}" y="${H / 2 - 4}" class="dg-invtxt">${inv.model}</text>`);
+    lines.push(`<text x="${PORT_X + 162}" y="${H / 2 + 12}" class="dg-invsub">${g(inv.ac_kw)} kW${count > 1 ? ` · × ${count}` : ""}</text>`);
     for (const p of ports) {
-      lines.push(`<circle cx="${PORT_X}" cy="${p.py}" r="4" class="${p.used ? "dg-port" : "dg-port off"}"/>`);
-      lines.push(`<text x="${PORT_X + 8}" y="${p.py + 4}" class="dg-ptxt${p.used ? "" : " off"}">MPPT ${p.i + 1}</text>`);
+      lines.push(`<circle cx="${PORT_X}" cy="${p.cy}" r="4" class="${p.used ? "dg-port" : "dg-port off"}"/>`);
+      lines.push(`<line x1="${PORT_X + 4}" y1="${p.cy}" x2="${PORT_X + 14}" y2="${p.cy}" class="dg-bus${p.used ? "" : " off"}"/>`);
+    }
+    for (const m of mppts) {
+      // bracket joining the MPPT's inputs, then its label
+      lines.push(`<path d="M${PORT_X + 14} ${m.top} V${m.bottom}" class="dg-bus${m.used ? "" : " off"}"/>`);
+      lines.push(`<text x="${PORT_X + 22}" y="${(m.top + m.bottom) / 2 + 4}" class="dg-ptxt${m.used ? "" : " off"}">MPPT ${m.i + 1}</text>`);
+      if (m.inputs > 1) lines.push(`<text x="${PORT_X + 22}" y="${(m.top + m.bottom) / 2 + 17}" class="dg-psub">${m.n}/${m.inputs} inputs</text>`);
     }
     return raw(`<svg viewBox="0 0 ${W} ${H}" class="dg" role="img" aria-label="Stringing of ${inv.model}">${lines.join("")}</svg>`);
   }
 
-  function groupText(rows) {
-    return rows.map((r, i) => (r.strings ? `MPPT ${i + 1}: ${plural(r.strings, "string")} × ${r.length} modules` : null)).filter(Boolean);
+  function groupText(rows, caps) {
+    return rows.map((r, i) => (r.strings ? `MPPT ${i + 1}: ${plural(r.strings, "string")} × ${r.length} modules`
+      + (caps?.[i]?.connectors > 1 ? ` (${r.strings} of ${caps[i].connectors} inputs)` : "") : null)).filter(Boolean);
   }
 
   function renderDesign() {
@@ -285,8 +297,8 @@ ${band(o.ratio) === "warn" ? html`<div class="note small">Overloaded: DC/AC ${r2
 ${allGroups.map(({ p, gr }) => html`
 <div class="dg-group">
   <div class="dg-head"><b>${gr.count} × ${p.inverter.make} ${p.inverter.model}</b> <span class="muted small">${gr.fill.modules} modules each · ${num((gr.fill.modules * m.wp) / 1000)} kWp · DC/AC ${r2((gr.fill.modules * m.wp) / 1000 / p.inverter.ac_kw)}</span></div>
-  ${diagram(p.inverter, gr.fill.rows, gr.count)}
-  <div class="small">${groupText(gr.fill.rows).join(" · ")}</div>
+  ${diagram(p.inverter, gr.fill.rows, gr.count, p.caps)}
+  <div class="small">${groupText(gr.fill.rows, p.caps).join(" · ")}</div>
 </div>`)}
 ${warns.length ? html`<div class="small" style="margin-top:8px">${warns.map((w) => html`<div class="ck-line ck-warn">${w}</div>`)}</div>` : ""}
 <div class="bar">
@@ -303,7 +315,7 @@ ${client && saved ? html`<p class="small muted">${client.name} has a saved strin
     const lines = [`${o.label}: ${o.modules} × ${moduleLabel(m)} = ${num(o.dc_kwp)} kWp on ${num(o.ac_kw)} kW, DC/AC ${r2(o.ratio)} (${bandText(o.ratio)})`,
       `Temperatures ${g(st.t_min_c)}–${g(st.t_max_c)} °C${st.series_only ? ", series strings only" : ""}`];
     for (const p of o.parts) for (const gr of p.groups) {
-      lines.push(`${gr.count} × ${p.inverter.model} (${gr.fill.modules} modules each): ` + groupText(gr.fill.rows).join("; "));
+      lines.push(`${gr.count} × ${p.inverter.model} (${gr.fill.modules} modules each): ` + groupText(gr.fill.rows, p.caps).join("; "));
     }
     return lines.join("\n");
   }
