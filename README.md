@@ -58,8 +58,13 @@ A private web app for solar PV work: clients, projects, authority paperwork, and
   (default 0.8 lowest, 1.2 normal max., 1.25 overload max., all editable), series strings only (default on),
   high-voltage connectors and the rule profile.
 - **Proposed configurations:** inverter combinations from the library picked with the offer deck's logic
-  (`suggestInverters`: fewest inverters, then ratio closest to 1.0, up to two models), each strung within the hard
-  rules. Ratios above the normal max. are marked as overloaded.
+  (`suggestInverters`), each strung by `designFor`. Only configurations that take every panel and keep every string
+  inside the inverter's MPPT voltage window (Voc at the lowest temperature ≤ MPPT max., Vmp hot ≥ MPPT min. and
+  start-up voltage) are listed. Series strings are preferred; parallel strings are used only on inverters whose share
+  doesn't fit otherwise. Ratios above the normal max. are marked as overloaded.
+- **Number of panels ⇄ DC capacity:** type either; the other follows from the module's Wp.
+- **Your own configuration:** pick inverter models and quantities; the tool strings them, says what doesn't work
+  (panels that don't fit, ratio, voltages, currents) and can show the diagram for it.
 - **Stringing diagram** per inverter: MPPTs used, strings per MPPT and modules per string, plus every calculation
   step (module count, temperatures, Voc/Vmp at temperature, string length limits, strings per MPPT, DC/AC).
 - Voltage-by-length and MPPT-limit tables, and a hand editor for one inverter, are under the diagram.
