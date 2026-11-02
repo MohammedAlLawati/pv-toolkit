@@ -4,8 +4,8 @@
 // Most files get a numeric id; a few app-wide ones use fixed string ids ("letterhead_top").
 
 const DB_NAME = "pv-toolkit";
-const DB_VERSION = 4;
-export const STORES = ["clients", "projects", "parties", "modules", "inverters", "rule_profiles", "files", "settings", "letters", "offers"];
+const DB_VERSION = 5;
+export const STORES = ["clients", "projects", "parties", "modules", "inverters", "rule_profiles", "files", "settings", "letters", "offers", "forms"];
 // Changes waiting to go to the cloud (see cloud.js): { key: "<store>:<id>", store, id, op: "put"|"del" }.
 const OUTBOX = "outbox";
 
