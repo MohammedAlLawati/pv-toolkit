@@ -83,16 +83,18 @@ function prefill(all, query) {
   const project = query.project_id ? all.projects.find((p) => p.id === Number(query.project_id)) : null;
   const client = all.client.get(Number(query.client_id || project?.client_id)) || null;
   const template = query.template && TEMPLATES[query.template] ? query.template
-    : client && !client.signatory_name ? "nedc_residential" : "nedc_commercial";
+    : client && (client.client_type ? client.client_type === "residential" : !client.signatory_name) ? "nedc_residential" : "nedc_commercial";
   const values = {};
   if (client) {
     values.ClientName = client.name;
     values[audienceOf(template) === "commercial" ? "CRNo" : "CivilID"] = client.id_no;
     values.SignatoryName = client.signatory_name;
     values.SignatoryID = client.signatory_id;
-    values.Location = [client.village, client.wilaya, client.governorate].filter(Boolean).join(", ");
+    values.Location = [client.village, client.wilaya, client.governorate].filter(Boolean).join(", ")
+      || (Number.isFinite(client.latitude) && Number.isFinite(client.longitude) ? `${client.latitude}, ${client.longitude}` : "");
   }
-  const points = project?.account_no ? [{ account_no: project.account_no, location: "" }] : [];
+  const meters = project?.account_no ? [project.account_no] : Array.isArray(client?.meter_numbers) ? client.meter_numbers : [];
+  const points = meters.map((account_no) => ({ account_no, location: "" }));
   return { template, lang: query.lang === "ar" ? "ar" : "en", date: today(), values, points,
            client_id: client?.id ?? null, project_id: project?.id ?? null };
 }

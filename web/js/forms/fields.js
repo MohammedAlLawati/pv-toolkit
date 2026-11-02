@@ -155,10 +155,12 @@ export const designAbove = (values) => above11kw(toProject(values));
 // ---- prefill ------------------------------------------------------------------------------
 
 /** Inputs taken from a client record. */
-export const fromClient = (c) => (c ? {
+export const fromClient = (c) => (c ? Object.fromEntries(Object.entries({
   client_name: c.name, id_no: c.id_no, mobile: c.mobile, tel: c.tel, email: c.email,
   governorate: c.governorate, wilaya: c.wilaya, village: c.village,
-} : {});
+  account_no: Array.isArray(c.meter_numbers) ? c.meter_numbers[0] : undefined,
+  premises_type: c.client_type === "residential" || c.client_type === "commercial" ? c.client_type : undefined,
+}).filter(([, x]) => x !== undefined && x !== null && x !== "")) : {});
 
 /** Inputs taken from library equipment. */
 export const fromModule = (m) => (m ? {
@@ -184,6 +186,9 @@ export function fromProject(p, all) {
     "consultant_id", "contractor_id"]) {
     if (p[k] !== null && p[k] !== undefined && p[k] !== "") out[k] = p[k];
   }
+  // the client's type decides the premises (the design record no longer asks for it)
+  const premises = fromClient(all.client.get(p.client_id)).premises_type;
+  if (premises) out.premises_type = premises;
   if (p.phases) out.phases = String(p.phases);
   if (p.internal_transformer !== undefined) out.internal_transformer = !!p.internal_transformer;
   return Object.fromEntries(Object.entries(out).filter(([, x]) => x !== undefined && x !== null));

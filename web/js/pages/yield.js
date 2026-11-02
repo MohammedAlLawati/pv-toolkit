@@ -54,7 +54,7 @@ export async function index(main) {
 </div>
 <div class="panel">
   ${rows.length ? html`<table>
-    <thead><tr><th>Project</th><th class="r">DC kWp</th><th>Weather</th><th class="r">Energy (kWh/yr)</th><th class="r">kWh/kWp</th><th class="r">PR</th><th>Rules</th></tr></thead>
+    <thead><tr><th>Design</th><th class="r">DC kWp</th><th>Weather</th><th class="r">Energy (kWh/yr)</th><th class="r">kWh/kWp</th><th class="r">PR</th><th>Rules</th></tr></thead>
     <tbody>${rows.map((p) => {
       const y = p.yield_result;
       return html`<tr>
@@ -64,7 +64,7 @@ export async function index(main) {
       <td class="r num">${y ? num(y.e_grid, 0) : "—"}</td><td class="r num">${y ? num(y.specific, 0) : "—"}</td>
       <td class="r num">${y?.pr ? num(y.pr * 100, 1) + " %" : "—"}</td><td>${pill(projectCheck(p, all))}</td></tr>`;
     })}</tbody>
-  </table>` : html`<div class="empty">No projects yet. <a href="#/projects/new">Create one</a>.</div>`}
+  </table>` : html`<div class="empty">No design records yet. Start one from a <a href="#/clients">client's page</a>.</div>`}
 </div>`;
 }
 
@@ -166,7 +166,7 @@ function weatherPanel(p, w, others) {
   <div class="steps small">
     ${hasSite ? html`<div><b>1.</b> <a class="btn small" href="${pvgisTmyUrl(p.latitude, p.longitude)}" target="_blank" rel="noopener">Download the PVGIS typical year</a>
       for ${num(p.latitude, 4)}, ${num(p.longitude, 4)}. <span class="muted">It saves a .json file. PVGIS doesn't let web pages fetch it directly, so the file comes back in step 2.</span></div>`
-      : html`<div class="flash warn">Add the site's latitude and longitude to the project first (<a href="#/projects/${p.id}/edit">edit the project</a>).</div>`}
+      : html`<div class="flash warn">Add the site's location on the client page first (${p.client ? html`<a href="#/clients/${p.client.id}">open ${p.client.name}</a>` : "no client linked"}).</div>`}
     <div><b>${hasSite ? "2." : ""}</b> <label class="btn small">${w ? "Replace with a file…" : "Choose the file…"}<input type="file" id="wfile" accept=".json,.csv,.epw,application/json,text/csv" hidden></label>
       <span class="muted">or drop it on this box. PVGIS JSON or CSV, or an EPW file (e.g. from <a href="${PVGIS_SITE}" target="_blank" rel="noopener">the PVGIS site</a> or Meteonorm).</span></div>
     ${others.length ? html`<div><b>or</b> use the weather of another project:

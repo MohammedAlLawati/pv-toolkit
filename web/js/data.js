@@ -5,6 +5,7 @@ import { CATEGORIES, syncMpptSummary } from "./equipment_fields.js";
 import { DEFAULT_PROFILE_NAME, defaults, settingsFrom } from "./sizing/rules.js";
 import { check, designFrom } from "./sizing/engine.js";
 import { SUNGROW_MENA, JINKO_MODULES } from "./seed_data.js";
+import { withClientDefaults } from "./clients/model.js";
 
 export { dcKwp, acKw, dcAcRatio, above11kw } from "./docgen/context.js";
 
@@ -23,8 +24,9 @@ export async function loadAll() {
 
 /** A project with its related records attached (what docgen and the engine expect). */
 export function full(p, all) {
-  return { ...p,
-    client: all.client.get(p.client_id) || null,
+  const client = all.client.get(p.client_id) || null;
+  return { ...withClientDefaults(p, client),
+    client,
     module: all.module.get(p.module_id) || null,
     inverter: all.inverter.get(p.inverter_id) || null,
     consultant: all.party.get(p.consultant_id) || null,
