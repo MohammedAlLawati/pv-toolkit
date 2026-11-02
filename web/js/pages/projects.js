@@ -144,7 +144,7 @@ export async function form(main, { params, query }) {
       <div><label>Internal transformer</label><div class="radios">
         <label><input type="radio" name="internal_transformer" value="yes" ${chk(p.internal_transformer)}> Yes</label>
         <label><input type="radio" name="internal_transformer" value="no" ${chk(!p.internal_transformer)}> No</label></div></div>
-      <label>Annual generation (kWh) <input name="annual_gen_kwh" value="${g(p.annual_gen_kwh)}" inputmode="decimal"><span class="hint">From PVsyst / Helioscope for now; calculated in Phase 3</span></label>
+      <label>Annual generation (kWh) <input name="annual_gen_kwh" value="${g(p.annual_gen_kwh)}" inputmode="decimal"><span class="hint">From PVsyst / Helioscope, or run the yield simulation on the project page</span></label>
       <label class="wide">Monthly generation, Jan to Dec (kWh) <textarea name="monthly_kwh" rows="2" placeholder="Paste the 12 monthly E_Grid values from PVsyst">${Array.isArray(p.monthly_kwh) ? p.monthly_kwh.map((x) => g(x)).join(" ") : ""}</textarea>
         <span class="hint">Used for the offer deck's energy table and chart. Blank = the annual figure spread over a typical Oman year. When filled, the annual figure becomes their total</span></label>
     </div>
@@ -364,7 +364,7 @@ export async function view(main, { params }) {
 </div>
 
 <div class="panel design-check">
-  <div class="panel-head"><h2>Design check ${pill(r)}</h2><a class="btn small primary" href="#/projects/${p.id}/sizing">Open sizing</a></div>
+  <div class="panel-head"><h2>Design check ${pill(r)}</h2><span class="actions"><a class="btn small" href="#/projects/${p.id}/yield">Yield simulation</a> <a class="btn small primary" href="#/projects/${p.id}/sizing">Open sizing</a></span></div>
   ${issues.length ? issues.map((c) => html`<div class="small ck-line ck-${c.status}"><b>${c.label}</b>${c.value ? html`: ${c.value}${c.limit ? html` (limit ${c.limit})` : ""}` : ""}. ${c.detail}</div>`)
     : html`<div class="small ok-text">Every rule passes${r.modules_per_string ? html`: ${p.strings} strings of ${r.modules_per_string} modules` : ""}.</div>`}
   ${blocked(r) ? html`<div class="small muted spaced-top">Yield reports stay blocked until every hard rule passes.</div>` : ""}
@@ -452,6 +452,7 @@ ${p.notes ? html`<div class="panel"><h2>Notes</h2><div>${p.notes}</div></div>` :
   });
   main.querySelector("#delete").addEventListener("click", async () => {
     for (const key of ["layout_file_id", ...OFFER_IMAGES.map(([k]) => k)]) await db.delFile(raw[key]);
+    await db.delFile(`weather_${raw.id}`);
     await db.del("projects", raw.id);
     toast("Project deleted.");
     go("#/projects");

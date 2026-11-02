@@ -87,6 +87,7 @@ ${c ? html`
   main.querySelector("#delete")?.addEventListener("click", async () => {
     for (const p of projects) {
       for (const k of ["layout_file_id", "offer_site_file_id", "offer_shadow_file_id", "offer_structure_file_id"]) await db.delFile(p[k]);
+      await db.delFile(`weather_${p.id}`);
       await db.del("projects", p.id);
     }
     await db.del("clients", c.id);
