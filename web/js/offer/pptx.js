@@ -352,6 +352,56 @@ export function fillSchedule(root, schedule) {
   return used;
 }
 
+const WEEKS_PER_SLIDE = 20, MONTHS_PER_SLIDE = 5;
+
+/** The week numbers named in a slide's schedule table (W1, W2, ...). */
+export const scheduleWeeks = (root) => byTag(root, "a", "t").map((t) => t.textContent.match(/^W(\d+)$/)).filter(Boolean).map((m) => Number(m[1]));
+
+/** Renumber a copied schedule slide's weeks and months by `blocks` slides' worth (20 weeks, 5 months each). */
+export function shiftSchedule(root, blocks) {
+  for (const t of byTag(root, "a", "t")) {
+    const w = t.textContent.match(/^W(\d+)$/), m = t.textContent.match(/^Month (\d+)$/);
+    if (w) t.textContent = `W${Number(w[1]) + blocks * WEEKS_PER_SLIDE}`;
+    else if (m) t.textContent = `Month ${Number(m[1]) + blocks * MONTHS_PER_SLIDE}`;
+  }
+}
+
+/** Remove the schedule table's week columns after `lastWeek`; the remaining weeks widen to keep the table's width. */
+export function trimSchedule(root, lastWeek) {
+  for (const tbl of byTag(root, "a", "tbl")) {
+    const rows = byTag(tbl, "a", "tr");
+    const weekRow = rows.find((r) => byTag(r, "a", "tc").some((tc) => /^W\d+$/.test(cellText(tc))));
+    if (!weekRow) continue;
+    const weeks = byTag(weekRow, "a", "tc").map((tc) => { const m = cellText(tc).match(/^W(\d+)$/); return m ? Number(m[1]) : null; });
+    const cut = weeks.map((w, i) => (w !== null && w > lastWeek ? i : -1)).filter((i) => i >= 0);
+    if (!cut.length) continue;
+    const cols = byTag(tbl, "a", "gridCol");
+    const width = (list) => list.reduce((t, c) => t + Number(c.getAttribute("w")), 0);
+    const keep = weeks.map((w, i) => (w !== null && w <= lastWeek ? cols[i] : null)).filter(Boolean);
+    const freed = width(cut.map((i) => cols[i]));
+    for (const r of rows) {
+      const tcs = byTag(r, "a", "tc");
+      for (const i of cut) if (tcs[i]) r.removeChild(tcs[i]);
+    }
+    for (const i of cut) cols[i].parentNode.removeChild(cols[i]);
+    const kept = width(keep);
+    if (kept) for (const c of keep) c.setAttribute("w", String(Math.round(Number(c.getAttribute("w")) * (1 + freed / kept))));
+  }
+}
+
+/** The "Months 1-5, Cont. Months 6-10 Next Slide" note: rewritten, or removed on the last schedule slide. */
+export function scheduleNote(root, text) {
+  for (const t of byTag(root, "a", "t")) {
+    if (!/Next Slide/i.test(t.textContent)) continue;
+    if (text) { t.textContent = text; continue; }
+    let sp = t.parentNode;
+    while (sp && !(sp.namespaceURI === NS.p && sp.localName === "sp")) sp = sp.parentNode;
+    if (sp) sp.parentNode.removeChild(sp);
+  }
+}
+
+const monthsText = (a, b) => (a === b ? `Month ${a}` : `Months ${a}-${b}`);
+
 /**
  * The sub-system table: the row holding {{SS_Name}} is copied once per sub-system
  * ([{ name, mounting, module, modules, dc, inverters, ac, ratio }], already formatted) and then removed.
@@ -415,6 +465,19 @@ export async function renderPptx(template, input) {
                 flags: { subsystems: subsystems.length > 0, components: (input.components || 0) > 0 } };
 
   const lastWeek = input.schedule?.length ? Math.max(...input.schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0))) : null;
+  // the schedule runs over input.scheduleMonths months (else to the last activity), 5 months a slide
+  const schedMonths = input.schedule?.length ? input.scheduleMonths || Math.max(1, Math.ceil(lastWeek / 4)) : null;
+  const schedSlides = schedMonths ? Math.ceil(schedMonths / MONTHS_PER_SLIDE) : 0;
+  const isSched = [];
+  for (const s of slides) isSched.push(scheduleWeeks(await deck.tree(s.part)).length > 0);
+  const lastSched = isSched.lastIndexOf(true);
+  const doSchedule = (root, block) => {
+    const a = block * MONTHS_PER_SLIDE + 1, b = Math.min(schedMonths, a + MONTHS_PER_SLIDE - 1);
+    scheduleNote(root, block < schedSlides - 1
+      ? `${monthsText(a, b)}, Cont. ${monthsText(b + 1, Math.min(schedMonths, b + MONTHS_PER_SLIDE))} Next Slide` : "");
+    trimSchedule(root, schedMonths * 4);
+    fillSchedule(root, input.schedule);
+  };
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
     const spec = /^offer:spec_(module|inverter)$/.exec(tags[i]);
@@ -440,11 +503,23 @@ export async function renderPptx(template, input) {
     }
     if (!keepSlide(tags[i], ctx)) { await deck.dropSlide(s); continue; }
     const root = await deck.tree(s.part);
-    if (input.schedule?.length && byTag(root, "a", "tbl").length) {
-      // a schedule slide whose weeks all come after the last activity is dropped
-      const firstWeek = Math.min(...byTag(root, "a", "t").map((t) => t.textContent.match(/^W(\d+)$/)).filter(Boolean).map((m) => Number(m[1])));
-      if (Number.isFinite(firstWeek) && firstWeek > lastWeek) { await deck.dropSlide(s); continue; }
-      fillSchedule(root, input.schedule);
+    if (schedMonths && isSched[i]) {
+      // slides past the schedule's months are dropped; the last one is copied for months past the template's
+      const block = Math.floor((Math.min(...scheduleWeeks(root)) - 1) / WEEKS_PER_SLIDE);
+      if (block >= schedSlides) { await deck.dropSlide(s); continue; }
+      if (i === lastSched) {
+        let after = s;
+        for (let k = block + 1; k < schedSlides; k++) {
+          const c = await deck.cloneSlide(s, after);
+          after = c;
+          const croot = await deck.tree(c.part);
+          shiftSchedule(croot, k - block);
+          doSchedule(croot, k);
+          replacePlaceholders(croot, input.values, missing, "a");
+          await fillImages(deck, c.part, croot, images);
+        }
+      }
+      doSchedule(root, block);
     }
     if (subsystems.length) fillSubsystems(root, subsystems);
     layoutComponents(root, input.components || 0);

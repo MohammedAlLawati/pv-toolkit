@@ -33,6 +33,14 @@ export const DEFAULT_SCHEDULE = [
   { n: 8, name: "Hand Over", start: 39, weeks: 1 },
 ];
 export const MAX_WEEKS = 40;
+export const MAX_MONTHS = 36;
+/** The schedule's length in months: the offer's own, else enough for its last activity (10 for the template). */
+export function scheduleMonths(o) {
+  if (Number.isInteger(o?.schedule_months) && o.schedule_months > 0) return Math.min(MAX_MONTHS, o.schedule_months);
+  const sched = o?.schedule || DEFAULT_SCHEDULE;
+  const last = Math.max(1, ...sched.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 1)));
+  return Math.min(MAX_MONTHS, Math.ceil(last / 4));
+}
 
 export const QUICK_DEFAULTS = {
   client_name: "", reference_code: "", price_per_kwp: null,
@@ -277,6 +285,7 @@ export function toProject(o, lookup = {}) {
     annual_gen_kwh: kwh ? Math.round(kwh) : null,
     monthly_kwh: monthlyScaled(o, kwh),
     schedule: o.schedule || DEFAULT_SCHEDULE,
+    schedule_months: scheduleMonths(o),
     // the breakdown slide: when there's more than one sub-system or inverter model
     subsystems: t.rows.length > 1 || t.inverterModels.length > 1 ? t.rows : [],
   };

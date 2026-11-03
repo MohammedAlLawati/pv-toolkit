@@ -288,19 +288,20 @@ h3 { font-size: 13px; margin: 14px 0 2px; }
 
 /* quick offer form: editable schedule (Gantt) */
 .gantt { overflow-x: auto; font-size: 12px; }
-.g-row { display: grid; grid-template-columns: 24px minmax(180px, 1fr) 54px 54px minmax(480px, 2.4fr) 30px; gap: 6px; align-items: center; padding: 2px 0; min-width: 860px; }
+.gantt { --weeks: 40; }
+.g-row { display: grid; grid-template-columns: 24px minmax(180px, 1fr) 54px 54px minmax(calc(var(--weeks) * 13px), 2.4fr) 30px; gap: 6px; align-items: center; padding: 2px 0; min-width: calc(420px + var(--weeks) * 13px); }
 .g-row input { width: 100%; font: inherit; padding: 3px 5px; }
 .g-row .btn { padding: 2px 8px; }
 .g-head { font-weight: 600; color: var(--ink-3); }
-.g-weeks { display: grid; grid-template-columns: repeat(40, 1fr); height: 22px; touch-action: none; user-select: none;
-  background-image: linear-gradient(to right, var(--line-2) 1px, transparent 1px), linear-gradient(to right, var(--line) 1px, transparent 1px);
-  background-size: calc(100% / 10) 100%, calc(100% / 40) 100%; border-right: 1px solid var(--line-2); }
-.g-head .g-weeks { background: none; border: 0; }
-.g-head .g-weeks b { font-size: 10.5px; text-align: center; border-left: 1px solid var(--line-2); }
-.g-weeks i { cursor: pointer; margin: 4px 0; }
+.g-weeks { display: grid; grid-template-columns: repeat(var(--weeks), 1fr); height: 22px; touch-action: none; user-select: none;
+  border: 1px solid var(--line-2); border-left: 0; }
+.g-head .g-weeks { border: 0; }
+.g-head .g-weeks b { font-size: 10.5px; text-align: center; border-left: 2px solid var(--ink-3); white-space: nowrap; overflow: hidden; }
+.g-weeks i { cursor: pointer; border-left: 1px solid var(--line); }
+.g-weeks i.m { border-left: 2px solid var(--ink-3); }
 .g-weeks i.on { background: var(--sun); }
-.g-weeks i.s { border-radius: 4px 0 0 4px; margin-left: 1px; }
-.g-weeks i.e { border-radius: 0 4px 4px 0; margin-right: 1px; }
+.g-months { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
+.g-months b { font-size: 12.5px; min-width: 62px; text-align: center; }
 
 /* quick offer form: sub-systems, charts */
 .subsys input { width: 100%; font: inherit; padding: 3px 5px; min-width: 70px; }

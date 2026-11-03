@@ -702,6 +702,27 @@ def build() -> None:
     for n in (1, 2, 3):
         unlink_chart(pkg, n)
     shrink_photos(pkg)
+    # 34/35 schedule: the "Cont. ... Next Slide" note on the second slide too (the app rewrites or
+    # removes it, and copies the second slide when the schedule runs past 10 months)
+    s34, s35 = pkg.slide(34), pkg.slide(35)
+    note = next(sp for sp in s34.iter(q("p:sp")) if "Next Slide" in "".join(t.text or "" for t in sp.iter(q("a:t"))))
+    if not any("Next Slide" in (t.text or "") for t in s35.iter(q("a:t"))):
+        dup = copy.deepcopy(note)
+        dup.find(".//" + q("p:cNvPr")).set("id", "9001")
+        for ext in dup.iter(q("a:extLst")):
+            ext.getparent().remove(ext)
+            break
+        s35.find(q("p:cSld")).find(q("p:spTree")).append(dup)
+    for sl in (s34, s35):
+        for sp in sl.iter(q("p:sp")):
+            if "Next Slide" in "".join(t.text or "" for t in sp.iter(q("a:t"))):
+                # one line ("Months 6-10, Cont. Months 11-15 Next Slide"), bottom right beside the footer, clear of the table
+                xfrm = sp.find(q("p:spPr")).find(q("a:xfrm"))
+                xfrm.find(q("a:ext")).set("cx", str(int(4.2 * 914400)))
+                xfrm.find(q("a:off")).set("x", str(9144000 - 457200 - int(4.2 * 914400)))
+                xfrm.find(q("a:off")).set("y", "4560000")
+                for ppr in sp.iter(q("a:pPr")):
+                    ppr.set("algn", "r")
     pkg.save(OUT)
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)")
 
