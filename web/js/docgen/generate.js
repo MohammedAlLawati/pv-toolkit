@@ -115,7 +115,7 @@ export async function generateOffer(p) {
                                          pages: () => datasheetPages(c.item) })),
     moduleModel: p.module?.model || "", inverterModel: p.inverter?.model || "",
     moduleModels: p.module_models || [], inverterModels: p.inverter_models || [],
-    schedule: p.schedule || null,
+    schedule: p.schedule || null, scheduleMonths: p.schedule_months || null,
     images,
   });
   return { blob: new Blob([out.bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }),

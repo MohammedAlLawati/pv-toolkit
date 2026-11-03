@@ -9,7 +9,7 @@ import { setTitle } from "../app.js";
 import { generateOffer } from "../docgen/generate.js";
 import { fmtOmr } from "../docgen/context.js";
 import { MONTHS, SHADING_LIMIT_PCT, buildOfferValues, offerMissing, parseMonthly } from "../offer/values.js";
-import { DCAC_GREEN, DCAC_MAX, DCAC_MIN, DCAC_NOTE, DEFAULT_INSTALLATION, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_WEEKS, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
+import { DCAC_GREEN, DCAC_MAX, DCAC_MIN, DCAC_NOTE, DEFAULT_INSTALLATION, DEFAULT_SCHEDULE, DESIGN_TYPES, IMAGE_KEYS, MAX_MONTHS, scheduleMonths, QUICK_DEFAULTS, SLOT_OF, SPECIFIC_YIELD,
   annualKwh, capacities, quickMissing, ratioBand, suggestInverters, suggestCode, systemIssues, systemTotals, systemsOf,
   toProject } from "../offer/quick.js";
 import { inverterOptions, moduleOptions } from "../options.js";
@@ -297,6 +297,7 @@ export async function quick(main, { params, query }) {
   }
   setTitle(params.id ? `Offer · ${o.client_name}` : "New offer");
   const schedule = (o.schedule || DEFAULT_SCHEDULE).map((a) => ({ name: a.name, start: a.start, weeks: a.weeks }));
+  let schedMonths = scheduleMonths(o);
   const subsystems = systemsOf(o).map((r) => ({ ...r, inverters: (r.inverters || []).map((x) => ({ ...x })) }));
   const designTypes = [...new Set([...DESIGN_TYPES, ...(await db.getSetting("design_types", [])), ...subsystems.map((r) => r.installation_type)].filter(Boolean))];
   const corners = { ...(o.logo_corners || {}) };
@@ -387,8 +388,8 @@ export async function quick(main, { params, query }) {
   </div>
 
   <div class="panel">
-    <div class="panel-head"><h2>Project schedule</h2><span class="btns"><button type="button" class="btn small" id="sched-add">Add activity</button><button type="button" class="btn small" id="sched-reset">Reset to the template</button></span></div>
-    <p class="small muted">Drag across a row to set when an activity runs, or type the start week and length. Weeks after the last activity are left off the deck.</p>
+    <div class="panel-head"><h2>Project schedule</h2><span class="btns"><span class="g-months" aria-label="Months in the schedule"><button type="button" class="btn small" id="sched-less" title="One month fewer">−</button><b id="sched-months"></b><button type="button" class="btn small" id="sched-more" title="One month more">+</button></span><button type="button" class="btn small" id="sched-add">Add activity</button><button type="button" class="btn small" id="sched-reset">Reset to the template</button></span></div>
+    <p class="small muted">Drag across a row to set when an activity runs, or type the start week and length. Use − and + to set how many months the schedule covers; the deck shows those months, five to a slide.</p>
     <div class="gantt" id="gantt"></div>
   </div>
 </form>
@@ -414,7 +415,7 @@ export async function quick(main, { params, query }) {
       // design type, height, tilt and azimuth are kept per sub-system
       installation_type: undefined, elevation_m: undefined, tilt_deg: undefined, azimuth_deg: undefined,
       subsystems: subsystems.map((r) => ({ ...r, inverters: r.inverters.map((x) => ({ ...x })) })),
-      schedule: schedule.map((a) => ({ ...a })), logo_corners: { ...corners },
+      schedule: schedule.map((a) => ({ ...a })), schedule_months: schedMonths, logo_corners: { ...corners },
     };
   }
 
@@ -836,8 +837,12 @@ export async function quick(main, { params, query }) {
 
   // ---- schedule (Gantt)
   const gantt = main.querySelector("#gantt");
-  const months = Array.from({ length: MAX_WEEKS / 4 }, (_, i) => i + 1);
   function drawGantt() {
+    const months = Array.from({ length: schedMonths }, (_, i) => i + 1);
+    gantt.style.setProperty("--weeks", schedMonths * 4);
+    main.querySelector("#sched-months").textContent = `${schedMonths} month${schedMonths === 1 ? "" : "s"}`;
+    main.querySelector("#sched-less").disabled = schedMonths <= 1;
+    main.querySelector("#sched-more").disabled = schedMonths >= MAX_MONTHS;
     gantt.innerHTML = html`
       <div class="g-row g-head"><span>#</span><span>Activity</span><span>Start</span><span>Weeks</span>
         <div class="g-weeks">${months.map((m) => html`<b style="grid-column: span 4">Month ${m}</b>`)}</div><span></span></div>
@@ -848,12 +853,17 @@ export async function quick(main, { params, query }) {
         <div class="g-weeks" data-cells="${i}">${raw(cells(a))}</div>
         <button type="button" class="btn small" data-del="${i}" title="Remove this activity">×</button></div>`)}`;
   }
+  /** Fewer or more months. Activities keep their weeks: what falls after the last month is just not shown (nor on the deck). */
+  function setMonths(n) {
+    schedMonths = Math.min(MAX_MONTHS, Math.max(1, n));
+    drawGantt();
+  }
   function cells(a) {
     let s = "";
     const end = a.start + a.weeks - 1;
-    for (let w = 1; w <= MAX_WEEKS; w++) {
+    for (let w = 1; w <= schedMonths * 4; w++) {
       const on = a.weeks > 0 && w >= a.start && w <= end;
-      s += `<i data-w="${w}" class="${on ? `on${w === a.start ? " s" : ""}${w === end ? " e" : ""}` : ""}" title="Week ${w}"></i>`;
+      s += `<i data-w="${w}" class="${[on && "on", w % 4 === 1 && "m"].filter(Boolean).join(" ")}" title="Week ${w}"></i>`;
     }
     return s;
   }
@@ -871,8 +881,8 @@ export async function quick(main, { params, query }) {
     else {
       const v = Math.round(Number(e.target.value));
       if (!Number.isFinite(v)) return;
-      if (f === "start") a.start = Math.min(MAX_WEEKS, Math.max(1, v));
-      else a.weeks = Math.min(MAX_WEEKS - a.start + 1, Math.max(0, v));
+      if (f === "start") a.start = Math.min(schedMonths * 4, Math.max(1, v));
+      else a.weeks = Math.min(schedMonths * 4 - a.start + 1, Math.max(0, v));
       row.querySelector("[data-cells]").innerHTML = cells(a);
     }
   });
@@ -903,15 +913,18 @@ export async function quick(main, { params, query }) {
   window.addEventListener("pointerup", () => { drag = null; });
   main.querySelector("#sched-add").addEventListener("click", () => {
     const end = Math.max(0, ...schedule.map((a) => (a.weeks > 0 ? a.start + a.weeks - 1 : 0)));
-    const start = Math.min(MAX_WEEKS, end + 1);
-    schedule.push({ name: "New activity", start, weeks: Math.min(2, MAX_WEEKS - start + 1) });
+    const start = Math.min(schedMonths * 4, end + 1);
+    schedule.push({ name: "New activity", start, weeks: Math.min(2, schedMonths * 4 - start + 1) });
     drawGantt();
     gantt.querySelector(`[data-row="${schedule.length - 1}"] [data-f="name"]`)?.select();
   });
   main.querySelector("#sched-reset").addEventListener("click", () => {
     schedule.splice(0, schedule.length, ...DEFAULT_SCHEDULE.map((a) => ({ name: a.name, start: a.start, weeks: a.weeks })));
+    schedMonths = scheduleMonths({});
     drawGantt();
   });
+  main.querySelector("#sched-less").addEventListener("click", () => setMonths(schedMonths - 1));
+  main.querySelector("#sched-more").addEventListener("click", () => setMonths(schedMonths + 1));
 
   form.elements.reference_code.addEventListener("input", (e) => { codeEdited = e.target.value.trim() !== ""; });
 

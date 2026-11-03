@@ -184,7 +184,27 @@ test("schedule from the Gantt chart reaches the deck", async () => {
   for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) text += await zip.file(f).async("string");
   assert.ok(text.includes("Install everything"));
   assert.ok(!text.includes("All Installation (Mechanical"));
-  assert.ok(text.includes(">W20<") && !text.includes(">W21<"), "slides for weeks past the schedule are dropped");
+  // no month count given: enough months for the last activity (week 7 -> 2 months)
+  assert.ok(text.includes(">W8<") && !text.includes(">W9<") && !text.includes(">W21<"), "weeks past the schedule's months are dropped");
+  assert.ok(!text.includes("Next Slide"), "one schedule slide: no 'continued' note");
+
+  // 12 months: a third schedule slide is added for months 11 and 12
+  const render = async (scheduleMonths) => {
+    const z = await JSZip.loadAsync((await renderPptx(template, { values, months, flow, images: {}, schedule: DEFAULT_SCHEDULE, scheduleMonths,
+      moduleModel: base.module.model, inverterModel: base.inverter.model })).bytes);
+    const slides = Object.keys(z.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+    const xml = await Promise.all(slides.map((f) => z.file(f).async("string")));
+    return xml.filter((x) => />W\d+</.test(x));
+  };
+  const twelve = await render(12);
+  assert.equal(twelve.length, 3);
+  const all = twelve.join("");
+  assert.ok(all.includes(">W48<") && !all.includes(">W49<") && all.includes(">Month 12<") && !all.includes(">Month 13<"));
+  assert.ok(all.includes("Months 1-5, Cont. Months 6-10 Next Slide") && all.includes("Months 6-10, Cont. Months 11-12 Next Slide"));
+  assert.equal((twelve[2].match(/<a:gridCol /g) || []).length, 2 + 8, "the last slide keeps only weeks 41-48");
+  const seven = await render(7);
+  assert.equal(seven.length, 2);
+  assert.ok(seven.join("").includes(">W28<") && !seven.join("").includes(">W29<") && seven.join("").includes("Months 1-5, Cont. Months 6-7 Next Slide"));
 });
 
 test("Helioscope report figures", async () => {
