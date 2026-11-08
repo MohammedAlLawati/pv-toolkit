@@ -479,3 +479,9 @@ ol.calc li div { margin-left: 4px; font-variant-numeric: tabular-nums; }
 .custom-row select { min-width: 0; }
 #str-custom .bar { position: static; background: none; padding: 4px 0 10px; }
 #str-custom .verdict { margin: 4px 0 6px; }
+
+/* residential offer: pick the document's picture from the shading report */
+.report-pics { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.report-pics .pic-pick { padding: 4px; height: auto; background: #fff; }
+.report-pics .pic-pick img { display: block; max-height: 150px; max-width: 240px; }
+.report-pics .pic-pick.on { outline: 3px solid var(--sun); outline-offset: 1px; }

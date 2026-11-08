@@ -306,6 +306,11 @@ function workPanel(c, all) {
       <div class="small muted">The techno-commercial PowerPoint, from the Helioscope reports.</div>
       <a class="btn small" href="#/offers/new?client=${encodeURIComponent(c.name)}">New offer for this client</a>
     </div>
+    ${c.client_type === "commercial" ? "" : html`<div class="work-item">
+      <h3>Residential offer</h3>
+      <div class="small muted">The homeowner's offer as a Word document (the Execution Agreement).</div>
+      <a class="btn small" href="#/residential/new?client_id=${c.id}">New residential offer</a>
+    </div>`}
     <div class="work-item">
       <h3>Documents</h3>
       <div class="small muted">NAMA forms, execution agreement and NEDC letters, filled from this client.</div>
