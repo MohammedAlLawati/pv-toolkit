@@ -2,7 +2,7 @@
 // template), separate from the Offer decks page. Same kind of inputs as a quick offer (client,
 // module and panels, inverter, price per kWp, generation, tariff), one system, one inverter
 // model. The figures are worked out live; Preview shows the filled document.
-import { download, fileUrl, g, go, html, num, readImage, sel, shortDate, toast } from "../ui.js";
+import { download, fileUrl, g, go, html, num, sel, shortDate, toast } from "../ui.js";
 import * as db from "../store.js";
 import { byName, byUpdated, loadAll } from "../data.js";
 import { setTitle } from "../app.js";
@@ -144,11 +144,17 @@ export async function form(main, { params, query }) {
   </div>
 
   <div class="panel">
-    <h2>Contractor and layout</h2>
+    <h2>Contractor and picture</h2>
     <div class="fields">
       <label>Contractor <select name="contractor_id">${partyOptions(contractors, o.contractor_id)}</select><span class="hint"><a href="#/parties/new?kind=contractor">Add one</a></span></label>
-      <label>Layout picture <input type="file" name="layout" accept="image/*"><span class="hint">Goes in the Design Summary box, e.g. the Helioscope layout</span><span id="layout-img"></span></label>
     </div>
+    <h3 class="spaced-top">Picture from the shading report</h3>
+    <p class="small muted">The document has one picture, in the Design Summary box. Load the Helioscope shading report and pick one of its pictures.</p>
+    <div class="fields">
+      <label>Shading report (PDF) <input type="file" name="shading_report" accept="application/pdf"><span class="hint" id="report-status">Shading heatmap and the two 3D views</span></label>
+      <div id="layout-img"></div>
+    </div>
+    <div id="report-pics" class="report-pics"></div>
     <p class="small muted">Name, address, phone and e-mail come from the contractor's entry. Warranties, payment milestones and the schedule are as in the template.</p>
   </div>
 </form>
@@ -159,19 +165,59 @@ export async function form(main, { params, query }) {
 </div>`;
 
   const f = main.querySelector("#res");
-  // the layout picture: stored on save; a new one is previewed from memory until then
-  let layoutNew = null;
+  // the one picture: chosen from the shading report's pictures. A picked picture is stored at once
+  // (so Preview shows it) and replaces the saved one on save.
+  let pendingId = null, removeLayout = false;
+  const layoutId = () => (removeLayout ? null : pendingId ?? o.layout_file_id ?? null);
   const showLayout = async () => {
-    const rec = o.layout_file_id ? await db.getFile(o.layout_file_id) : null;
-    main.querySelector("#layout-img").innerHTML = rec ? String(html`<img class="stamp-preview" src="${fileUrl(rec)}" alt="">
-      <span class="check"><input type="checkbox" name="remove_layout"> Remove</span>`) : "";
+    const rec = layoutId() ? await db.getFile(layoutId()) : null;
+    main.querySelector("#layout-img").innerHTML = rec ? String(html`<span class="small">In the document:</span>
+      <img class="stamp-preview" src="${fileUrl(rec)}" alt=""> <button type="button" class="btn small" id="layout-remove">Remove</button>`)
+      : String(html`<span class="small muted">No picture yet: the Design Summary box stays empty.</span>`);
+    main.querySelector("#layout-remove")?.addEventListener("click", async () => {
+      if (pendingId) { await db.delFile(pendingId); pendingId = null; }
+      removeLayout = true;
+      await showLayout();
+    });
   };
   await showLayout();
-  f.elements.layout.addEventListener("change", async () => {
-    const file = f.elements.layout.files[0];
-    layoutNew = file ? { ...(await readImage(file)), name: file.name } : null;
+  let reportImages = [];
+  f.elements.shading_report.addEventListener("change", async () => {
+    const file = f.elements.shading_report.files[0];
+    const status = main.querySelector("#report-status"), box = main.querySelector("#report-pics");
+    for (const im of reportImages) URL.revokeObjectURL(im.url);
+    reportImages = []; box.innerHTML = "";
+    if (!file) return;
+    status.textContent = "Opening…";
+    try {
+      const { readReport } = await import("../offer/helioscope.js");
+      const r = await readReport(file, (msg) => { status.textContent = msg; });
+      status.innerHTML = r.kind === "shading" ? html`<span class="ok-text">${file.name}</span>`.toString()
+        : html`<span class="missing-text">${file.name} doesn't look like a shading report; its pictures are shown anyway</span>`.toString();
+      // the heatmap first, then the 3D views, then anything else
+      const rank = { shadow: 0, structure: 1, structure2: 2 };
+      reportImages = [...r.images].sort((a, b) => (rank[a.slot] ?? 9) - (rank[b.slot] ?? 9))
+        .map((im) => ({ ...im, url: URL.createObjectURL(im.blob) }));
+      box.innerHTML = reportImages.length ? html`<span class="small muted">Click the picture to use:</span>
+        ${reportImages.map((im, i) => html`<button type="button" class="btn pic-pick" data-img="${i}" title="Page ${im.page}"><img src="${im.url}" alt=""></button>`)}`.toString()
+        : html`<div class="flash warn">No pictures found in ${file.name}.</div>`.toString();
+      if (reportImages.length && !layoutId()) await usePicture(reportImages[0]);
+    } catch (err) {
+      console.error(err);
+      status.innerHTML = html`<span class="missing-text">Couldn't read ${file.name}: ${err.message || err}</span>`.toString();
+    }
   });
-  const numOf = (name) => {
+  async function usePicture(im) {
+    if (pendingId) await db.delFile(pendingId);
+    pendingId = await db.putFile(im.blob, `shading-report-p${im.page}.png`, { width: im.width, height: im.height, kind: "layout" });
+    removeLayout = false;
+    for (const b of main.querySelectorAll("[data-img]")) b.classList.toggle("on", reportImages[Number(b.dataset.img)] === im);
+    await showLayout();
+  }
+  main.querySelector("#report-pics").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-img]");
+    if (b) usePicture(reportImages[Number(b.dataset.img)]).then(() => toast("Picture set."));
+  });  const numOf = (name) => {
     const s = String(f.elements[name].value || "").replace(/,/g, "").trim();
     if (s === "") return null;
     const v = Number(s);
@@ -272,12 +318,9 @@ export async function form(main, { params, query }) {
   const save = async () => {
     const rec = read();
     if (!rec.client_name) { f.elements.client_name.focus(); throw new Error("Enter the homeowner's name first."); }
-    if (layoutNew || f.elements.remove_layout?.checked) {
-      await db.delFile(rec.layout_file_id);
-      rec.layout_file_id = layoutNew ? await db.putFile(layoutNew.blob, layoutNew.name, { width: layoutNew.width, height: layoutNew.height, kind: "layout" }) : null;
-      layoutNew = null;
-      f.elements.layout.value = "";
-    }
+    rec.layout_file_id = layoutId();
+    if (o.layout_file_id && o.layout_file_id !== rec.layout_file_id) await db.delFile(o.layout_file_id);
+    pendingId = null; removeLayout = false;
     const id = await db.put(STORE, rec);
     o = { ...rec, id };
     await showLayout();
@@ -298,8 +341,7 @@ export async function form(main, { params, query }) {
   }));
   const area = main.querySelector("#preview");
   const showPreview = async () => {
-    if (layoutNew && o.id) await save();
-    const { blob } = await build(read(), all);
+    const { blob } = await build({ ...read(), layout_file_id: layoutId() }, all);
     await renderPreview(blob, area);
     main.querySelector("#preview-note").textContent = "The Word file is the final version; the preview can differ slightly.";
   };
