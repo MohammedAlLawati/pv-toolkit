@@ -14,6 +14,7 @@ import {
   AlignmentType, BorderStyle, CheckBox, Document, HeightRule, LineRuleType, Footer, Header, ImageRun, LevelFormat, Packer, PageBreak, PageNumber,
   Paragraph, ShadingType, Table, TableCell, TableLayoutType, TableRow, TextRun, VerticalAlign, WidthType,
 } from "../../vendor/docx/docx.mjs";
+import { SOURCE, describe } from "./irradiance.js";
 import { CHECKLIST, MONTHS, fmt, fmtDate, inverterText, isCleaning, isInspection, monthName, reportNo,
          EMISSION_FACTOR, TREE_KG } from "./model.js";
 
@@ -176,6 +177,8 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   const P = Number(site.capacity_kwp);
   const inv = inverterText(site);
   const lab = (d) => d.label + (d.partial ? "*" : d.mtd ? "†" : "");
+  const noPr = !!site.hide_pr;
+  const ests = months.filter((d) => d.irr_est), calcPr = months.filter((d) => d.pr_calc);
   const out = [];
 
   // cover
@@ -203,11 +206,11 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   // 1. executive summary
   out.push(h1("1. Executive Summary"));
   out.push(text(`This monthly report covers the operation of the ${site.plant_name} solar PV plant in ${period}, with cumulative figures `
-    + `for the calendar year to date (${ytd}). Energy generation, irradiation and performance ratio (PR) are taken from the plant `
-    + "monitoring system (Sungrow iSolarCloud).", { after: 6 }));
+    + `for the calendar year to date (${ytd}). ${noPr ? "Energy generation is" : "Energy generation, irradiation and performance ratio (PR) are"} taken from the plant `
+    + `monitoring system (Sungrow iSolarCloud)${!noPr && ests.length ? `; irradiation for ${ests.map((d) => d.label).join(", ")} is estimated from ${SOURCE} satellite data` : ""}.`, { after: 6 }));
   out.push(h2(`This month – ${month}${cur.mtd ? " (month-to-date)" : ""}`));
   out.push(bullet(`Generation: ${fmt(cur.energy)} kWh${cur.sy !== null ? `, a specific yield of ${fmt(cur.sy)} kWh/kWp` : ""}.`));
-  if (cur.pr !== null) out.push(bullet(`Performance ratio: ${fmt(cur.pr)} %${cur.irr !== null ? ` at ${fmt(cur.irr)} kWh/m² irradiation` : ""}.`));
+  if (!noPr && cur.pr !== null) out.push(bullet(`Performance ratio: ${fmt(cur.pr)} %${cur.irr !== null ? ` at ${fmt(cur.irr)} kWh/m² irradiation` : ""}.`));
   out.push(bullet(`CO₂ avoided: ${fmt(cur.co2 / 1000, 2)} tonnes, equal to about ${fmt(cur.trees, 0)} trees.`));
   const mlog = calc.log.filter((e) => e.date.slice(0, 7) === r.report_month);
   const cl = mlog.filter(isCleaning).map((e) => fmtDate(e.date)), ins = mlog.filter(isInspection).map((e) => fmtDate(e.date));
@@ -217,7 +220,7 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   out.push(h2(`Year to date – ${ytd}`));
   out.push(bullet(`Cumulative generation: ${fmt(tot.energy)} kWh (${fmt(tot.energy / 1000)} MWh)${tot.sy !== null ? `, a specific yield of ${fmt(tot.sy, 0)} kWh/kWp` : ""}.`));
   if (months.length > 1) out.push(bullet(`Highest monthly generation: ${tot.top.label} (${fmt(tot.top.energy)} kWh).`));
-  if (tot.pr !== null) {
+  if (!noPr && tot.pr !== null) {
     out.push(bullet(`Energy-weighted average PR for ${tot.pr_range}: ${fmt(tot.pr)} %`
       + (tot.pr_low !== tot.pr_high ? ` (monthly range ${fmt(tot.pr_low.pr)} % in ${tot.pr_low.label} to ${fmt(tot.pr_high.pr)} % in ${tot.pr_high.label}).` : ".")));
   }
@@ -237,36 +240,59 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   const invRow = rows.length - 1;
   if (site.commissioning_month) rows.push(["Commissioned", monthName(site.commissioning_month)]);
   if (site.location) rows.push(["Location", site.location]);
+  rows.push(["Generation", "Monthly yield (kWh) from the iSolarCloud monitoring export, used as reported."]);
+  if (!noPr) rows.push(
+    ["Irradiation", ests.length
+      ? `Plant monthly irradiation from the iSolarCloud export (Wh/m², shown as kWh/m²) where the site measures it. For ${ests.map((d) => d.label).join(", ")} (no measurement) it is estimated from ${describe(ests[ests.length - 1].irr_est)}.`
+      : "Plant monthly irradiation from the iSolarCloud export (Wh/m², shown as kWh/m²)."],
+    ["Performance Ratio", (calcPr.length
+      ? `Monthly PR (%) from the iSolarCloud export where given; for ${calcPr.map((d) => d.label).join(", ")} calculated as generation ÷ (DC kWp × irradiation).`
+      : "Monthly PR (%) from the iSolarCloud export, used as reported.") + " The year-to-date PR is the energy-weighted average of the monthly values."],
+  );
   rows.push(
-    ["Generation", "Monthly yield (kWh) from the iSolarCloud monitoring export, used as reported."],
-    ["Irradiation", "Plant monthly irradiation from the iSolarCloud export (Wh/m², shown as kWh/m²)."],
-    ["Performance Ratio", "Monthly PR (%) from the iSolarCloud export, used as reported. The year-to-date PR is the energy-weighted average of the monthly values."],
     ["CO₂ avoided", `Generation × ${EMISSION_FACTOR} kg CO₂/kWh (Oman grid emission factor).`],
     ["Tree equivalent", `CO₂ avoided ÷ ${TREE_KG} kg CO₂ absorbed per tree per year.`],
   );
   out.push(table(["Item", "Value / Basis"], rows, [4.5, 12.5], { sample: inv ? [] : [invRow] }));
 
   // 3. generation
-  out.push(h1("3. Generation, PR and Irradiation – Year to Date"));
-  out.push(text(`Monthly generation, irradiation and PR for ${ytd}. The report month is shown in bold and the totals are cumulative for the calendar year.`));
-  const gen = months.map((d) => [lab(d), fmt(d.energy), d.irr !== null ? fmt(d.irr) : "n/a", d.pr !== null ? fmt(d.pr) : "n/a",
-    d.sy !== null ? fmt(d.sy) : "n/a", fmt(d.cum)]);
-  gen.push(["YTD total / avg.", fmt(tot.energy), fmt(tot.irr), tot.pr !== null ? fmt(tot.pr) : "n/a", tot.sy !== null ? fmt(tot.sy) : "n/a", fmt(tot.energy)]);
-  out.push(table(["Month", "Generation (kWh)", "Irradiation (kWh/m²)", "PR (%)", "Specific yield (kWh/kWp)", "Cumulative (kWh)"], gen,
-    [2.6, 2.9, 2.9, 2.0, 3.1, 3.5], { total: [gen.length - 1], bold: [months.indexOf(cur)], align: "LRRRRR" }));
-  let nt = "YTD PR is energy-weighted";
-  if (first.partial) nt += ` and excludes ${first.label}* (commissioning month)`;
-  nt += ".";
+  out.push(h1(noPr ? "3. Generation – Year to Date" : "3. Generation, PR and Irradiation – Year to Date"));
+  out.push(text(`Monthly generation${noPr ? "" : ", irradiation and PR"} for ${ytd}. The report month is shown in bold and the totals are cumulative for the calendar year.`));
+  const estMark = (d, v) => (d.irr_est ? `${v}‡` : v);
+  const prMark = (d, v) => (d.pr_calc ? `${v}‡` : v);
+  if (noPr) {
+    const gen = months.map((d) => [lab(d), fmt(d.energy), d.sy !== null ? fmt(d.sy) : "n/a", fmt(d.cum)]);
+    gen.push(["YTD total", fmt(tot.energy), tot.sy !== null ? fmt(tot.sy) : "n/a", fmt(tot.energy)]);
+    out.push(table(["Month", "Generation (kWh)", "Specific yield (kWh/kWp)", "Cumulative (kWh)"], gen,
+      [3.2, 4.6, 4.6, 4.6], { total: [gen.length - 1], bold: [months.indexOf(cur)], align: "LRRR" }));
+  } else {
+    const gen = months.map((d) => [lab(d), fmt(d.energy), d.irr !== null ? estMark(d, fmt(d.irr)) : "n/a", d.pr !== null ? prMark(d, fmt(d.pr)) : "n/a",
+      d.sy !== null ? fmt(d.sy) : "n/a", fmt(d.cum)]);
+    gen.push(["YTD total / avg.", fmt(tot.energy), fmt(tot.irr), tot.pr !== null ? fmt(tot.pr) : "n/a", tot.sy !== null ? fmt(tot.sy) : "n/a", fmt(tot.energy)]);
+    out.push(table(["Month", "Generation (kWh)", "Irradiation (kWh/m²)", "PR (%)", "Specific yield (kWh/kWp)", "Cumulative (kWh)"], gen,
+      [2.6, 2.9, 2.9, 2.0, 3.1, 3.5], { total: [gen.length - 1], bold: [months.indexOf(cur)], align: "LRRRRR" }));
+  }
+  let nt = noPr ? "" : `YTD PR is energy-weighted${first.partial ? ` and excludes ${first.label}* (commissioning month)` : ""}.`;
+  if (noPr && first.partial) nt += `${first.label}*: commissioning month (part-month).`;
   if (last.mtd) nt += ` ${last.label}†: month-to-date.`;
-  const capped = months.filter((d) => d.pr !== null && Math.abs(d.pr - 90) < 1e-6).map((d) => d.label);
+  if (!noPr && (ests.length || calcPr.length)) {
+    nt += ` ‡ ${ests.length ? `Irradiation estimated from ${describe(ests[ests.length - 1].irr_est)}` : "Irradiation entered by hand"}`
+      + `${calcPr.length ? "; PR calculated from it as generation ÷ (DC kWp × irradiation)" : ""}. Satellite estimates carry an uncertainty of several per cent.`;
+  }
+  const capped = noPr ? [] : months.filter((d) => d.pr !== null && !d.pr_calc && Math.abs(d.pr - 90) < 1e-6).map((d) => d.label);
   if (capped.length) nt += ` PR for ${capped.join(", ")} is reported by the monitoring system as exactly 90.0 %, which may be a capped value.`;
   const NAMES = { energy: "generation", irr: "irradiation", pr: "PR" };
-  const fixed = months.filter((d) => d.edited?.length).map((d) => `${d.label} (${d.edited.map((k) => NAMES[k] || k).join(", ")})`);
+  const fixed = months.filter((d) => (noPr ? d.edited?.includes("energy") : d.edited?.length)).map((d) => `${d.label} (${d.edited.map((k) => NAMES[k] || k).join(", ")})`);
   if (fixed.length) nt += ` Corrected by hand, differing from the monitoring export: ${fixed.join("; ")}.`;
-  out.push(note(nt));
-  out.push(h2("Monthly generation"), ...figure(charts.gen, 15, "Figure 1 – Monthly energy generation (MWh)."));
-  out.push(h2("Monthly performance ratio"), ...figure(charts.pr, 15, "Figure 2 – Monthly performance ratio (%)."));
-  out.push(h2("Monthly irradiation"), ...figure(charts.irr, 15, "Figure 3 – Monthly irradiation (kWh/m²)."));
+  if (nt.trim()) out.push(note(nt.trim()));
+  let fig = 0;
+  const cap = (img, s) => (img ? `Figure ${++fig} – ${s}` : "");
+  out.push(h2("Monthly generation"), ...figure(charts.gen, 15, cap(charts.gen, "Monthly energy generation (MWh).")));
+  if (!noPr) {
+    const lighter = ests.length || calcPr.length ? " Lighter bars: estimated (‡)." : "";
+    out.push(h2("Monthly performance ratio"), ...figure(charts.pr, 15, cap(charts.pr, `Monthly performance ratio (%).${calcPr.length ? lighter : ""}`)));
+    out.push(h2("Monthly irradiation"), ...figure(charts.irr, 15, cap(charts.irr, `Monthly irradiation (kWh/m²).${ests.length ? lighter : ""}`)));
+  }
 
   // 4. environment
   out.push(h1("4. Environmental Impact"));
@@ -276,8 +302,8 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   env.push(["Total", fmt(tot.energy), fmt(tot.co2, 0), fmt(tot.co2 / 1000, 2), fmt(tot.trees, 0)]);
   out.push(table(["Month", "Generation (kWh)", "CO₂ avoided (kg)", "CO₂ avoided (t)", "Tree equivalent"], env,
     [2.6, 3.6, 3.6, 3.6, 3.6], { total: [env.length - 1], align: "LRRRR" }));
-  out.push(...figure(charts.co2, 15, "Figure 4 – Monthly and cumulative CO₂ emissions avoided."));
-  out.push(h2("Tree-planting equivalent"), ...figure(charts.trees, 14.5, "Figure 5 – Trees required to absorb the avoided CO₂ over one year."));
+  out.push(...figure(charts.co2, 15, cap(charts.co2, "Monthly and cumulative CO₂ emissions avoided.")));
+  out.push(h2("Tree-planting equivalent"), ...figure(charts.trees, 14.5, cap(charts.trees, "Trees required to absorb the avoided CO₂ over one year.")));
 
   // 5. maintenance
   out.push(h1("5. Maintenance Activity"));
@@ -302,7 +328,7 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
       [2.4, 4.6, 2.2, 2.4, 2.0, 3.4], { align: "LLCCRL" }));
   }
   if (photos.length) {
-    out.push(text("Regular cleaning removes dust and soiling from the module surface. In the Muscat region soiling is a major cause of PR loss, "
+    out.push(text(`Regular cleaning removes dust and soiling from the module surface. In the Muscat region soiling is a major cause of ${noPr ? "energy" : "PR"} loss, `
       + "especially between rain events. The photographs below record the module condition before and after cleaning."));
     for (const ph of photos) {
       const pic = (img, title) => cell([
@@ -352,6 +378,7 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   out.push(h1("Data Sources and Assumptions"));
   out.push(bullet(`Plant monitoring export: ${r.export_name || "iSolarCloud monthly report"}.`));
   if (r.checklist) out.push(bullet(`Site checklist${r.checklist.ref ? ` ${r.checklist.ref}` : ""}${r.checklist.visit_date ? ` of ${fmtDate(r.checklist.visit_date)}` : ""}${r.checklist.file_name ? ` (${r.checklist.file_name})` : ""}.`));
+  if (!noPr && ests.length) out.push(bullet(`Irradiation for ${ests.map((d) => d.label).join(", ")}: ${SOURCE} (power.larc.nasa.gov), hourly satellite data, ${ests[ests.length - 1].irr_est.plane ? "put on the module plane with the Perez sky model" : "horizontal"}.`));
   out.push(bullet(`Oman grid emission factor ≈ ${EMISSION_FACTOR} kg CO₂/kWh.`));
   out.push(bullet(`Tree CO₂ absorption of ${TREE_KG} kg per tree per year (common conversion value).`));
 

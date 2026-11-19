@@ -117,8 +117,8 @@ export function reportCharts(calc) {
   const cumCo2 = ms.map((d) => (cum += d.co2 / 1000));
   return {
     gen: barChart(ms.map((d) => ({ label: lab(d), value: d.energy / 1000 })), { ylabel: "Monthly generation (MWh)", color: COLORS.green }),
-    pr: barChart(ms.map((d) => ({ label: lab(d), value: d.pr })), { ylabel: "Performance ratio (%)", color: COLORS.charcoal }),
-    irr: barChart(ms.map((d) => ({ label: lab(d), value: d.irr })), { ylabel: "Irradiation (kWh/m²)", color: COLORS.blue }),
+    pr: barChart(ms.map((d) => ({ label: lab(d), value: d.pr, color: d.pr_calc ? COLORS.light : undefined })), { ylabel: "Performance ratio (%)", color: COLORS.charcoal }),
+    irr: barChart(ms.map((d) => ({ label: lab(d), value: d.irr, color: d.irr_est ? COLORS.steel : undefined })), { ylabel: "Irradiation (kWh/m²)", color: COLORS.blue }),
     co2: barChart(ms.map((d) => ({ label: lab(d), value: d.co2 / 1000 })), {
       ylabel: "Monthly CO₂ avoided (t)", color: COLORS.blue,
       line: { values: cumCo2, color: COLORS.charcoal, ylabel: "Cumulative (t)" },

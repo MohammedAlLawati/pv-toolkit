@@ -11,11 +11,14 @@ import { setTitle } from "../app.js";
 import { inverterOptions } from "../options.js";
 import { CLIENT_TYPES, NEW_CLIENT } from "../clients/model.js";
 import { ACTIVITIES, CHECKLIST, NEW_REPORT, NEW_SITE, SEVERITIES, compute, dateFromFileName, earlierInYear, fileBase, fmt, fmtDate,
-         isCleaning, keyOf, matchClient, monthName, reportNo, siteOf, totalAcKw, ym } from "../om/model.js";
+         isCleaning, keyOf, matchClient, missingIrradiation, monthName, reportNo, siteOf, totalAcKw, ym } from "../om/model.js";
 
 const STORE = "om_reports";
 const today = () => new Date().toISOString().slice(0, 10);
 const lastMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
+const numOrNull = (v) => { const s = String(v ?? "").replace(/,/g, "").trim(); return s && Number.isFinite(Number(s)) ? Number(s) : null; };
+const describeIrr = (e) => `NASA POWER satellite data, ${e.plane ? `on the module plane (${e.plane.tilt}° tilt)` : "horizontal"}${e.filled ? `, ${e.filled} missing day(s) averaged` : ""}`;
+const POWER_SITE = "https://power.larc.nasa.gov/";
 const safe = (s) => String(s || "").replace(/[\\/:*?"<>|]+/g, "-").trim();
 
 async function busy(btn, fn) {
@@ -268,6 +271,11 @@ export async function form(main, { params, query }) {
       <label>Commissioned (month) <input type="month" name="commissioning_month"><span class="hint">Its month is a part-month, left out of the PR average</span></label>
       <label class="wide">Installation type <input name="installation" placeholder="e.g. Rooftop PV on existing carpark metal-sheet roof"></label>
       <label class="wide">Location <input name="location" placeholder="e.g. Muscat, Sultanate of Oman"></label>
+      <label>Latitude <input name="latitude" inputmode="decimal" placeholder="e.g. 23.588"><span class="hint">For satellite irradiation when the site has no weather station</span></label>
+      <label>Longitude <input name="longitude" inputmode="decimal" placeholder="e.g. 58.383"></label>
+      <label>Module tilt (°) <input name="tilt" inputmode="decimal" placeholder="0"><span class="hint">0 = flat (horizontal irradiation)</span></label>
+      <label>Module azimuth (°) <input name="azimuth" inputmode="decimal" placeholder="180"><span class="hint">From north, 180 = facing south</span></label>
+      <label class="wide check"><input type="checkbox" name="hide_pr"> Leave PR and irradiation out of this client's reports <span class="hint">Hides the PR and irradiation figures, tables, charts and notes</span></label>
     </div>
     <h3 class="spaced-top">Inverters (AC side)</h3>
     <table class="om-rows"><thead><tr><th>From the library</th><th>Model as printed</th><th>Qty</th><th>kW AC each</th><th></th></tr></thead>
@@ -311,6 +319,7 @@ export async function form(main, { params, query }) {
 </form>
 <div class="panel">
   <h2>Figures <span class="small muted">(from the Excel sheet; type over a value to correct it)</span></h2>
+  <div id="irr-box"></div>
   <div id="figures"></div>
 </div>
 <div class="panel">
@@ -327,6 +336,8 @@ export async function form(main, { params, query }) {
   let pendingChecklist = null;   // { blob, name } until saved
   let removedChecklist = null;   // file id to delete on save
   const figures = JSON.parse(JSON.stringify(r.figures || {}));
+  let irrEstimates = { ...(r.irr_estimates || {}) };
+  let irrNote = "", lastIrrHtml = null;
   const photos = (r.cleaning_photos || []).map((p) => ({ ...p }));
 
   // --- site fields follow the chosen client
@@ -339,6 +350,9 @@ export async function form(main, { params, query }) {
     E.commissioning_month.value = om.commissioning_month || "";
     E.installation.value = om.installation || (c?.installation_types || []).join(" / ");
     E.location.value = om.location || "";
+    E.latitude.value = g(om.latitude ?? c?.latitude); E.longitude.value = g(om.longitude ?? c?.longitude);
+    E.tilt.value = g(om.tilt); E.azimuth.value = g(om.azimuth);
+    E.hide_pr.checked = !!om.hide_pr;
     main.querySelector("#inv-rows").innerHTML = (om.inverters?.length ? om.inverters : [{}]).map((i) => String(rowInverter(i, all.inverters))).join("");
   };
   const showNewClient = () => { main.querySelector("#new-client").hidden = E.client_id.value !== "new"; };
@@ -455,6 +469,7 @@ export async function form(main, { params, query }) {
       lastPulled = pulled;
       showExport();
       refresh();
+      autoEstimate();
     } catch (err) {
       console.error(err);
       exportStatus.innerHTML = String(html`<span class="missing-text">${err.message}</span>`);
@@ -541,6 +556,8 @@ export async function form(main, { params, query }) {
     return {
       plant_name: E.plant_name.value.trim(), capacity_kwp: Number(String(E.capacity_kwp.value).replace(/,/g, "")) || null,
       commissioning_month: E.commissioning_month.value, installation: E.installation.value.trim(), location: E.location.value.trim(),
+      latitude: numOrNull(E.latitude.value), longitude: numOrNull(E.longitude.value), tilt: numOrNull(E.tilt.value), azimuth: numOrNull(E.azimuth.value),
+      hide_pr: E.hide_pr.checked,
       inverters: [...main.querySelectorAll(".inv-row")].map((tr) => ({
         inverter_id: Number(tr.querySelector('[name="inv_id"]').value) || null,
         model: tr.querySelector('[name="inv_model"]').value.trim(),
@@ -556,7 +573,7 @@ export async function form(main, { params, query }) {
       report_month: E.report_month.value, report_date: E.report_date.value, prepared_by: E.prepared_by.value.trim(),
       report_no: E.report_no.value.trim(),
       export_months: exportMonths, export_file_id: exportFileId, export_name: exportName,
-      figures: JSON.parse(JSON.stringify(figures)),
+      figures: JSON.parse(JSON.stringify(figures)), irr_estimates: { ...irrEstimates },
       checklist, checklist_file_id: checklistFileId,
       maintenance_log: collectLog(),
       cleaning_photos: photos.filter((p) => p.before_id || p.after_id || p.date),
@@ -595,29 +612,80 @@ export async function form(main, { params, query }) {
     const byKey = new Map(calc.months.map((d) => [d.key, d])), baseKey = new Map(base.months.map((d) => [d.key, d]));
     const keys = monthsBetween(calc.period.start, calc.period.end);
     const t = calc.totals;
+    const noPr = site.hide_pr;
+    const fields = noPr ? FIELDS.slice(0, 1) : FIELDS;
     const input = (key, k, dp) => {
       const d = byKey.get(key), set = figures[key]?.[k] !== undefined && figures[key]?.[k] !== "";
       const v = set ? figures[key][k] : d?.[k] ?? baseKey.get(key)?.[k];
       const was = baseKey.get(key)?.[k];
-      return html`<input class="fig ${set ? "om-edited" : ""}" data-key="${key}" data-k="${k}" inputmode="decimal" value="${v === null || v === undefined ? "" : Number(Number(v).toFixed(dp))}"
-        title="${set ? `Corrected by hand; the Excel sheet says ${was === null || was === undefined ? "nothing" : fmt(was, dp)}` : "From the Excel sheet; type to correct"}">`;
+      const est = !set && ((k === "irr" && d?.irr_est) || (k === "pr" && d?.pr_calc));
+      const tip = set ? `Corrected by hand; the Excel sheet says ${was === null || was === undefined ? "nothing" : fmt(was, dp)}`
+        : k === "irr" && d?.irr_est ? `Estimated from ${describeIrr(d.irr_est)}; type to correct`
+        : k === "pr" && d?.pr_calc ? "Calculated: generation ÷ (DC kWp × irradiation); type to correct" : "From the Excel sheet; type to correct";
+      return html`<input class="fig ${set ? "om-edited" : est ? "om-est" : ""}" data-key="${key}" data-k="${k}" inputmode="decimal" value="${v === null || v === undefined ? "" : Number(Number(v).toFixed(dp))}"
+        title="${tip}">`;
     };
+    // months without irradiation in the export (no weather station): offer satellite data
+    const missing = noPr ? [] : missingIrradiation(calc, cur, today());
+    const noIrr = missing.filter((m) => !byKey.get(m.key)?.irr_est);
+    const haveEst = calc.months.filter((d) => d.irr_est);
+    const irrHtml = noPr ? "" : String(html`
+      ${noIrr.length ? html`<div class="flash warn">The Excel sheet has no irradiation for ${noIrr.map((m) => monthName(m.key)).join(", ")} (no weather station on site?).
+        ${site.lat !== null && site.lon !== null ? "Get it from NASA POWER satellite data and the PR is worked out from it." : html`Add the plant's latitude and longitude in Plant details to get it from NASA POWER satellite data.`}</div>` : ""}
+      ${haveEst.length ? html`<div class="small">Irradiation for ${haveEst.map((d) => d.label).join(", ")} is estimated from ${describeIrr(haveEst[haveEst.length - 1].irr_est)}; PR is calculated from it (shown in blue).</div>` : ""}
+      ${irrNote ? html`<div class="small missing-text">${irrNote}</div>` : ""}
+      ${missing.length ? html`<p class="btns"><button type="button" class="btn small" id="irr-fetch" ${site.lat === null || site.lon === null ? "disabled" : ""}>${haveEst.length ? "Fetch satellite irradiation again" : "Get irradiation from NASA POWER"}</button>
+        ${haveEst.length ? html`<button type="button" class="btn small" id="irr-clear">Remove the estimates</button>` : ""}
+        <a class="small" href="${POWER_SITE}" target="_blank" rel="noopener">About NASA POWER</a></p>` : ""}`);
+    // redraw only on a change, so a click isn't lost when leaving a field redraws the panel
+    if (irrHtml !== lastIrrHtml) { main.querySelector("#irr-box").innerHTML = irrHtml; lastIrrHtml = irrHtml; }
     box.innerHTML = String(html`
       ${calc.problems.map((p) => html`<div class="flash warn">${p}</div>`)}
       <div class="table-scroll"><table class="om-figures">
-      <thead><tr><th>Month</th>${FIELDS.map(([, l]) => html`<th class="r">${l}</th>`)}<th class="r">kWh/kWp</th><th class="r">Cumulative (kWh)</th><th class="r">CO₂ (t)</th><th class="r">Trees</th><th></th></tr></thead>
+      <thead><tr><th>Month</th>${fields.map(([, l]) => html`<th class="r">${l}</th>`)}<th class="r">kWh/kWp</th><th class="r">Cumulative (kWh)</th><th class="r">CO₂ (t)</th><th class="r">Trees</th><th></th></tr></thead>
       <tbody>${keys.map((key) => {
         const d = byKey.get(key), { y } = ym(key);
         return html`<tr class="${key === cur.report_month ? "om-current" : ""}"><td>${d ? d.label : monthName(key).slice(0, 3)} ${y}${d?.partial ? " *" : d?.mtd ? " †" : ""}${d ? "" : html` <span class="missing-text small">missing</span>`}</td>
-          ${FIELDS.map(([k, , dp]) => html`<td class="r">${input(key, k, dp)}</td>`)}
+          ${fields.map(([k, , dp]) => html`<td class="r">${input(key, k, dp)}</td>`)}
           <td class="r num">${d?.sy != null ? fmt(d.sy) : "—"}</td><td class="r num">${d ? fmt(d.cum) : "—"}</td><td class="r num">${d ? fmt(d.co2 / 1000, 2) : "—"}</td><td class="r num">${d ? fmt(d.trees, 0) : "—"}</td>
           <td>${figures[key] && Object.keys(figures[key]).length ? html`<button type="button" class="btn small" data-reset="${key}" title="Back to the Excel sheet's values">Reset</button>` : ""}</td></tr>`;
       })}
-      ${t ? html`<tr class="om-total"><td>Year to date</td><td class="r num">${fmt(t.energy)}</td><td class="r num">${fmt(t.irr)}</td><td class="r num">${t.pr !== null ? fmt(t.pr) : "n/a"}</td>
+      ${t ? html`<tr class="om-total"><td>Year to date</td><td class="r num">${fmt(t.energy)}</td>${noPr ? "" : html`<td class="r num">${fmt(t.irr)}</td><td class="r num">${t.pr !== null ? fmt(t.pr) : "n/a"}</td>`}
         <td class="r num">${t.sy !== null ? fmt(t.sy) : "—"}</td><td class="r num">${fmt(t.energy)}</td><td class="r num">${fmt(t.co2 / 1000, 2)}</td><td class="r num">${fmt(t.trees, 0)}</td><td></td></tr>` : ""}</tbody>
       </table></div>
-      <p class="small muted">Values in yellow were typed over the Excel sheet and are noted in the report. YTD PR is the energy-weighted average of the monthly PRs${calc.months[0]?.partial ? ", leaving out the commissioning month (*)" : ""}. CO₂ at 0.49 kg/kWh; trees at 21.77 kg CO₂ per tree per year.</p>`);
+      <p class="small muted">Values in yellow were typed over the Excel sheet and are noted in the report.${noPr ? " PR and irradiation are left out of this client's reports." : ` Values in blue are estimated. YTD PR is the energy-weighted average of the monthly PRs${calc.months[0]?.partial ? ", leaving out the commissioning month (*)" : ""}.`} CO₂ at 0.49 kg/kWh; trees at 21.77 kg CO₂ per tree per year.</p>`);
   }
+
+  // --- satellite irradiation (NASA POWER) for months the export has none
+  async function fetchIrradiance(btn) {
+    const cur = collect(), site = siteOf(draftClient());
+    const calc = compute(cur, site, reports);
+    const months = missingIrradiation(calc, cur, today());
+    if (!months.length) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Fetching from NASA POWER…"; }
+    try {
+      const { estimateIrradiation } = await import("../om/irradiance.js");
+      const { estimates, problems } = await estimateIrradiation(site, months);
+      irrEstimates = { ...irrEstimates, ...estimates };
+      irrNote = problems.length ? `Not estimated: ${problems.join("; ")}` : "";
+      const n = Object.keys(estimates).length;
+      if (n) toast(`Irradiation for ${n} month(s) from NASA POWER; PR worked out from it.`);
+    } catch (err) {
+      console.error(err);
+      irrNote = err.message || String(err);
+    }
+    refresh();
+  }
+  const autoEstimate = () => {
+    const site = siteOf(draftClient());
+    if (site.hide_pr || site.lat === null || site.lon === null) return;
+    const cur = collect(), calc = compute(cur, site, reports);
+    if (missingIrradiation(calc, cur, today()).some((m) => !calc.months.find((d) => d.key === m.key)?.irr_est)) fetchIrradiance(null);
+  };
+  main.querySelector("#irr-box").addEventListener("click", (e) => {
+    if (e.target.id === "irr-fetch") fetchIrradiance(e.target);
+    if (e.target.id === "irr-clear") { irrEstimates = {}; irrNote = ""; refresh(); }
+  });
   const figBox = main.querySelector("#figures");
   figBox.addEventListener("change", (e) => {
     const inp = e.target.closest("input.fig"); if (!inp) return;

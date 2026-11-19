@@ -197,6 +197,14 @@ blank in the generated document, and the app logs the name.
   reports that year; earlier visits too.
 - **Plant details are kept on the client** (`client.om`): plant name, DC kWp, installation, location,
   commissioning month and the inverters (model, quantity, kW AC; pick from the library or type them).
+- **Sites without a weather station:** months the export gives no irradiation for are flagged, and with the
+  plant's latitude and longitude (from the client or typed) the page fetches NASA POWER hourly satellite data
+  (free, no key, any use), puts it on the module plane (tilt and azimuth, Perez sky model as in the yield
+  simulation) and works out PR = generation ÷ (DC kWp × irradiation). Estimated values show in blue and are
+  marked ‡ in the report with the source. Other sources, if more accuracy is needed: Solcast or Solargis
+  (paid satellite services, more accurate) or Open-Meteo (free for non-commercial use only).
+- **PR and irradiation can be left out** per client (checkbox in Plant details): the report then has no PR or
+  irradiation figures, columns, charts or notes, and the figures are renumbered.
 - **Figures can be corrected** in the figures table: a value typed over the export is kept with the report
   (shown in yellow, with a Reset), carries into later months' reports and is noted in the Word report.
 - **Figures are recalculated every time** from the inputs: generation, irradiation, PR (as iSolarCloud reports
@@ -215,4 +223,4 @@ blank in the generated document, and the app logs the name.
   report, the Excel export, the filled checklist and the photos are stored as files, so they go to the cloud with everything else. *Full package* zips a month's latest
   report, checklist, export, photos and inputs; the list page zips a whole client year.
 - Code: `web/js/om/` (`xlsx.js` reads the export, `model.js` the numbers, `charts.js` the charts, `report.js`
-  the Word files, `checklist.js` reads the filled checklist) and `web/js/pages/om.js`; tests in `web/tests/om.test.mjs`.
+  the Word files, `checklist.js` reads the filled checklist, `irradiance.js` the NASA POWER estimate) and `web/js/pages/om.js`; tests in `web/tests/om.test.mjs`.
