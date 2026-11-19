@@ -180,3 +180,29 @@ blank in the generated document, and the app logs the name.
 - Clients now have an optional authorised signatory name and ID for companies.
 - Code: `app/letters/` (`builder.py` builds the .docx, `defaults.py` holds the built-in wording,
   `service.py` links them to the database) and `app/routes/letters.py`.
+
+## O&M reports (static app, `web/`)
+
+- **O&M reports** in the menu (Operations), or *New O&M report* on a client's page.
+- **Monthly report, cumulative for the calendar year:** the January report shows January, February shows
+  January–February, and so on to December; it starts again each January. In the commissioning year it starts
+  from the commissioning month, which is marked as a part-month and left out of the PR average.
+- **Inputs per month:** the client (an existing one, or a new one added on the spot), the report month and date,
+  the iSolarCloud *Monthly report* export (.xlsx), the month's maintenance visits, before/after cleaning photos
+  and the Not OK items from the site checklist. Months missing from the export come from the client's earlier
+  reports that year; earlier visits too.
+- **Plant details are kept on the client** (`client.om`): plant name, DC kWp, installation, location,
+  commissioning month and the inverters (model, quantity, kW AC; pick from the library or type them).
+- **Figures are recalculated every time** from the inputs: generation, irradiation, PR (as iSolarCloud reports
+  it; no target), specific yield, cumulative kWh, YTD energy-weighted PR, CO₂ (0.49 kg/kWh) and trees
+  (21.77 kg CO₂ per tree per year).
+- **Word report** on the HTC letterhead (the one uploaded in Settings, else the built-in one), edge to edge, in
+  the logo's blue and greys with green for generation and trees: summary (this month / year to date), plant
+  data, the YTD table and charts, environmental impact, maintenance log, cleaning photos, inspection findings
+  and data sources.
+- **Site checklist** (34 items, cleaning record, defects table) is a separate Word file, printed and filled in on site.
+- **Versions and packages:** every generated report is kept as a version; the report, the Excel export and the
+  photos are stored as files, so they go to the cloud with everything else. *Full package* zips a month's latest
+  report, checklist, export, photos and inputs; the list page zips a whole client year.
+- Code: `web/js/om/` (`xlsx.js` reads the export, `model.js` the numbers, `charts.js` the charts, `report.js`
+  the Word files) and `web/js/pages/om.js`; tests in `web/tests/om.test.mjs`.

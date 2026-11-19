@@ -417,4 +417,4 @@ export async function buildLetter(template, lang = "en", values = {}, opts = {})
   return opts.output === "buffer" ? Packer.toBuffer(doc) : Packer.toBlob(doc);
 }
 
-export { getTemplate };
+export { getTemplate, prepareImage, toBytes };

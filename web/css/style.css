@@ -485,3 +485,13 @@ ol.calc li div { margin-left: 4px; font-variant-numeric: tabular-nums; }
 .report-pics .pic-pick { padding: 4px; height: auto; background: #fff; }
 .report-pics .pic-pick img { display: block; max-height: 150px; max-width: 240px; }
 .report-pics .pic-pick.on { outline: 3px solid var(--sun); outline-offset: 1px; }
+
+/* O&M reports */
+table.om-rows { width: 100%; }
+table.om-rows td { padding: 4px 4px; vertical-align: top; }
+table.om-rows input, table.om-rows select { width: 100%; min-width: 80px; }
+table.om-rows input.short { min-width: 50px; max-width: 90px; }
+.om-photo { align-items: end; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+.om-photo:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+tr.om-current td { font-weight: 700; }
+tr.om-total td { font-weight: 700; background: #eef2f9; }
