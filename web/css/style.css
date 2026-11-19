@@ -495,3 +495,11 @@ table.om-rows input.short { min-width: 50px; max-width: 90px; }
 .om-photo:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
 tr.om-current td { font-weight: 700; }
 tr.om-total td { font-weight: 700; background: #eef2f9; }
+ul.tight { margin: 6px 0 4px; padding-left: 20px; }
+ul.tight li { margin: 1px 0; }
+.om-start { border-left: 4px solid var(--accent, #1650A6); }
+table.om-figures input.fig { width: 110px; text-align: right; padding: 4px 6px; font-variant-numeric: tabular-nums; }
+table.om-figures input.fig.om-edited { background: #fff7c2; border-color: #e0c200; }
+.om-year { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 6px; }
+.om-year:first-of-type { margin-top: 4px; }
+.om-year h3 { margin: 0; }

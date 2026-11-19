@@ -13,6 +13,8 @@
 //   cleaning_photos                 [{ date, before_id, after_id }] this month's cleanings
 //   findings                        [{ item_no, finding, severity, action, status }] Not OK checklist items
 //   versions                        [{ n, created_at, report_file_id, report_name, summary }]
+//   figures                         { "YYYY-MM": { energy?, irr?, pr? } } values typed over the export's
+//   checklist                       the filled site checklist read back (see checklist.js), or null
 //
 // The plant itself lives on the client record, as client.om (entered once per client):
 //   plant_name, capacity_kwp, installation, location, commissioning_month "YYYY-MM",
@@ -22,7 +24,7 @@ export const EMISSION_FACTOR = 0.49;   // kg CO2 per kWh, Oman grid
 export const TREE_KG = 21.77;          // kg CO2 absorbed per tree per year
 export const TREES_PER_ICON = 100;
 
-export const ACTIVITIES = ["Module cleaning", "Monthly inspection (checklist)", "Quarterly inspection (checklist)",
+export const ACTIVITIES = ["Cleaning and general inspection", "Module cleaning", "Monthly inspection (checklist)", "Quarterly inspection (checklist)",
   "Annual inspection (checklist)", "Corrective maintenance", "Inverter service", "Other"];
 export const SEVERITIES = ["Low", "Medium", "High"];
 
@@ -30,7 +32,8 @@ export const MONTHS = ["January", "February", "March", "April", "May", "June", "
 export const MON = MONTHS.map((m) => m.slice(0, 3));
 
 export const NEW_REPORT = { client_id: null, report_month: "", report_date: "", prepared_by: "", report_no: "",
-  export_file_id: null, export_name: "", export_months: {}, maintenance_log: [], cleaning_photos: [], findings: [], versions: [] };
+  export_file_id: null, export_name: "", export_months: {}, maintenance_log: [], cleaning_photos: [], findings: [], versions: [],
+  figures: {}, checklist: null };
 
 export const NEW_SITE = { plant_name: "", capacity_kwp: null, installation: "", location: "", commissioning_month: "", inverters: [] };
 
@@ -170,6 +173,14 @@ export function compute(r, site, reports = [], { emission = EMISSION_FACTOR, tre
   const data = {};
   for (const x of earlier) Object.assign(data, x.export_months || {});
   Object.assign(data, r.export_months || {});
+  // values typed over the export in the figures table win (this year's earlier reports, then this one)
+  const edited = {};
+  for (const [key, o] of [...earlier, r].flatMap((x) => Object.entries(x.figures || {}))) {
+    const set = Object.entries(o || {}).filter(([, v]) => has(v) && Number.isFinite(Number(v)));
+    if (!set.length) continue;
+    data[key] = { ...(data[key] || {}), ...Object.fromEntries(set.map(([k, v]) => [k, Number(v)])) };
+    edited[key] = set.map(([k]) => k);
+  }
 
   const start = periodStart(r, site), end = r.report_month;
   const rd = /^\d{4}-\d{2}-\d{2}/.test(r.report_date || "") ? r.report_date : null;
@@ -187,7 +198,7 @@ export function compute(r, site, reports = [], { emission = EMISSION_FACTOR, tre
     const pr = has(d.pr) && Number.isFinite(Number(d.pr)) ? Number(d.pr) : null;
     const irr = has(d.irr) && Number.isFinite(Number(d.irr)) ? Number(d.irr) : null;
     const co2 = energy * emission;
-    months.push({ key, y, m, label: MON[m - 1], energy, pr, irr, partial, mtd,
+    months.push({ key, y, m, label: MON[m - 1], energy, pr, irr, partial, mtd, edited: edited[key] || [],
       in_avg: pr !== null && !partial, sy: P > 0 ? energy / P : null, co2, trees: co2 / treeKg });
   }
   let cum = 0;
@@ -223,4 +234,48 @@ export const isInspection = (e) => /inspect/i.test(e?.activity || "");
 /** File name for a generated document. */
 export function fileBase(r, site) {
   return `${reportNo(r, site)} - O&M Report`;
+}
+
+/**
+ * A typed date to "YYYY-MM-DD": 2026-11-10, 10/11/2026 or 10.11.26 (day first), "10 Nov 2026".
+ * `fallbackMonth` ("YYYY-MM") completes a bare day ("10") or day/month ("10/11"). "" when unreadable.
+ */
+export function parseDate(text, fallbackMonth = "") {
+  const s = String(text || "").trim();
+  if (!s) return "";
+  const ok = (y, m, d) => (y > 1999 && m >= 1 && m <= 12 && d >= 1 && d <= daysIn(y, m) ? `${y}-${pad(m)}-${pad(d)}` : "");
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) return ok(+m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})/);
+  if (m) return ok(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2], +m[1]);
+  m = s.match(/^(\d{1,2})[\s-]*([A-Za-z]{3,})[\s-,]*(\d{4})?/);
+  if (m) {
+    const mi = MON.findIndex((x) => x.toLowerCase() === m[2].slice(0, 3).toLowerCase());
+    const y = m[3] ? +m[3] : Number(fallbackMonth.slice(0, 4));
+    if (mi >= 0) return ok(y, mi + 1, +m[1]);
+  }
+  const fb = /^\d{4}-\d{2}$/.test(fallbackMonth) ? ym(fallbackMonth) : null;
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+  if (m && fb) return ok(fb.y, +m[2], +m[1]);
+  m = s.match(/^(\d{1,2})$/);
+  if (m && fb) return ok(fb.y, fb.m, +m[1]);
+  return "";
+}
+
+/** The report date carried in an iSolarCloud file name ("…_20261119090441.xlsx"), or "". */
+export function dateFromFileName(name) {
+  const m = String(name || "").match(/(20\d{2})(\d{2})(\d{2})\d{6}/);
+  return m ? parseDate(`${m[1]}-${m[2]}-${m[3]}`) : "";
+}
+
+/** The client whose plant matches the export's plant name (plant name first, then client name). */
+export function matchClient(plant, clients) {
+  const n = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, "");
+  const p = n(plant);
+  if (!p) return null;
+  return clients.find((c) => n(c.om?.plant_name) === p)
+    || clients.find((c) => n(c.name) === p)
+    || clients.find((c) => (n(c.om?.plant_name) && (n(c.om.plant_name).includes(p) || p.includes(n(c.om.plant_name)))))
+    || clients.find((c) => n(c.name).includes(p) && p.length >= 3)
+    || null;
 }
