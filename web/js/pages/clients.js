@@ -59,6 +59,7 @@ export async function list(main, { query }) {
 
 export async function form(main, { params }) {
   const all = await loadAll();
+  all.om = await db.list("om_reports");
   const stored = params.id ? all.client.get(params.id) : null;
   if (params.id && !stored) { main.innerHTML = `<div class="panel empty">Client not found. <a href="#/clients">All clients</a></div>`; return; }
   const c = stored ? clientView(stored) : { ...NEW_CLIENT };
@@ -272,6 +273,12 @@ ${stored ? html`<button class="btn danger small" id="delete" data-confirm="Delet
       await db.delFile(`weather_${p.id}`);
       await db.del("projects", p.id);
     }
+    for (const r of (await db.list("om_reports")).filter((x) => x.client_id === c.id)) {
+      for (const v of r.versions || []) await db.delFile(v.report_file_id);
+      for (const p of r.cleaning_photos || []) { await db.delFile(p.before_id); await db.delFile(p.after_id); }
+      await db.delFile(r.export_file_id);
+      await db.del("om_reports", r.id);
+    }
     await db.del("clients", c.id);
     toast("Client deleted.");
     go("#/clients");
@@ -311,6 +318,11 @@ function workPanel(c, all) {
       <div class="small muted">The homeowner's offer as a Word document (the Execution Agreement).</div>
       <a class="btn small" href="#/residential/new?client_id=${c.id}">New residential offer</a>
     </div>`}
+    <div class="work-item">
+      <h3>O&amp;M reports</h3>
+      <div class="small muted">${(all.om || []).filter((r) => r.client_id === c.id).length ? `${(all.om || []).filter((r) => r.client_id === c.id).length} monthly report(s).` : "Monthly operation & maintenance reports from the iSolarCloud export."}</div>
+      <span class="btns"><a class="btn small" href="#/om/new?client_id=${c.id}">New O&amp;M report</a>${(all.om || []).some((r) => r.client_id === c.id) ? html`<a class="btn small" href="#/om?client_id=${c.id}">See reports</a>` : ""}</span>
+    </div>
     <div class="work-item">
       <h3>Documents</h3>
       <div class="small muted">NAMA forms, execution agreement and NEDC letters, filled from this client.</div>
