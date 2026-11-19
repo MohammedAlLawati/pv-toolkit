@@ -277,6 +277,7 @@ ${stored ? html`<button class="btn danger small" id="delete" data-confirm="Delet
       for (const v of r.versions || []) await db.delFile(v.report_file_id);
       for (const p of r.cleaning_photos || []) { await db.delFile(p.before_id); await db.delFile(p.after_id); }
       await db.delFile(r.export_file_id);
+      await db.delFile(r.checklist_file_id);
       await db.del("om_reports", r.id);
     }
     await db.del("clients", c.id);

@@ -11,7 +11,7 @@
 // opts.output: "blob" (default) or "buffer" (Node).
 
 import {
-  AlignmentType, BorderStyle, Document, LineRuleType, Footer, Header, ImageRun, LevelFormat, Packer, PageBreak, PageNumber,
+  AlignmentType, BorderStyle, CheckBox, Document, HeightRule, LineRuleType, Footer, Header, ImageRun, LevelFormat, Packer, PageBreak, PageNumber,
   Paragraph, ShadingType, Table, TableCell, TableLayoutType, TableRow, TextRun, VerticalAlign, WidthType,
 } from "../../vendor/docx/docx.mjs";
 import { CHECKLIST, MONTHS, fmt, fmtDate, inverterText, isCleaning, isInspection, monthName, reportNo,
@@ -260,6 +260,9 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   if (last.mtd) nt += ` ${last.label}†: month-to-date.`;
   const capped = months.filter((d) => d.pr !== null && Math.abs(d.pr - 90) < 1e-6).map((d) => d.label);
   if (capped.length) nt += ` PR for ${capped.join(", ")} is reported by the monitoring system as exactly 90.0 %, which may be a capped value.`;
+  const NAMES = { energy: "generation", irr: "irradiation", pr: "PR" };
+  const fixed = months.filter((d) => d.edited?.length).map((d) => `${d.label} (${d.edited.map((k) => NAMES[k] || k).join(", ")})`);
+  if (fixed.length) nt += ` Corrected by hand, differing from the monitoring export: ${fixed.join("; ")}.`;
   out.push(note(nt));
   out.push(h2("Monthly generation"), ...figure(charts.gen, 15, "Figure 1 – Monthly energy generation (MWh)."));
   out.push(h2("Monthly performance ratio"), ...figure(charts.pr, 15, "Figure 2 – Monthly performance ratio (%)."));
@@ -289,6 +292,15 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
     out.push(text("No maintenance activity recorded this year."));
   }
   out.push(h2(`5.2 PV module cleaning – ${month}`));
+  const ck = r.checklist || null;
+  const inMonth = (d) => d && d.slice(0, 7) === r.report_month;
+  const cleanRec = (ck?.cleaning || []).filter((c) => inMonth(c.date) || (!c.date && (c.area || c.by)));
+  if (cleanRec.length) {
+    out.push(text(`Module cleaning recorded on the site checklist${ck.ref ? ` (${ck.ref})` : ""}:`));
+    out.push(table(["Date", "Area / rows cleaned", "Method", "Soiling before", "Water (L)", "Done by"],
+      cleanRec.map((c) => [c.date ? fmtDate(c.date) : c.date_text || "—", c.area || "—", c.method || "—", ({ Med: "Medium" }[c.soiling] || c.soiling || "—"), c.water || "—", c.by || "—"]),
+      [2.4, 4.6, 2.2, 2.4, 2.0, 3.4], { align: "LLCCRL" }));
+  }
   if (photos.length) {
     out.push(text("Regular cleaning removes dust and soiling from the module surface. In the Muscat region soiling is a major cause of PR loss, "
       + "especially between rain events. The photographs below record the module condition before and after cleaning."));
@@ -306,23 +318,40 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
       }));
       out.push(para([run(ph.label || "", { size: 8, italic: true, color: GREY })], { align: AlignmentType.CENTER, after: 8 }));
     }
-  } else {
-    out.push(text("No module cleaning was carried out this month."));
+  } else if (!cleanRec.length) {
+    out.push(text(cl.length ? `Module cleaning was carried out on ${cl.join(", ")}.` : "No module cleaning was carried out this month."));
   }
   out.push(h2(`5.3 Inspection results – ${month}`));
   const fnd = (r.findings || []).filter((f) => f.finding);
-  if (ins.length) out.push(text("Inspections followed the site O&M checklist (issued as a separate document and filled in on site). Items marked Not OK are listed below with the action taken or planned."));
+  if (ck?.items?.length) {
+    const n = { OK: 0, "Not OK": 0, "N/A": 0 };
+    for (const it of ck.items) if (it.status in n) n[it.status]++;
+    const blank = ck.items.length - n.OK - n["Not OK"] - n["N/A"];
+    const who = [ck.visit_date ? `on ${fmtDate(ck.visit_date)}` : "", ck.inspected_by ? `by ${ck.inspected_by}` : ""].filter(Boolean).join(" ");
+    out.push(text(`The site was inspected ${who || "this month"} against the ${ck.items.length}-item O&M checklist${ck.ref ? ` (${ck.ref}` : ""}`
+      + `${ck.ref && ck.visit_type ? `, ${ck.visit_type.toLowerCase()} visit)` : ck.ref ? ")" : ""}: ${n.OK} OK, ${n["Not OK"]} Not OK, ${n["N/A"]} not applicable`
+      + `${blank ? `, ${blank} not checked` : ""}.${ck.weather ? ` Weather: ${ck.weather}.` : ""}`));
+    if (fnd.length) out.push(text("Items marked Not OK and other defects found are listed below with the action taken or planned."));
+  } else if (ins.length) out.push(text("Inspections followed the site O&M checklist (issued as a separate document and filled in on site). Items marked Not OK are listed below with the action taken or planned."));
   if (fnd.length) {
     out.push(table(["Item", "Finding", "Severity", "Action", "Status"],
       fnd.map((f) => [String(f.item_no ?? ""), f.finding, f.severity || "", f.action || "", f.status || "Open"]),
       [1.4, 6.0, 2.0, 5.4, 2.2], { align: "CLCLC" }));
   } else {
-    out.push(text(ins.length ? "All checklist items were found OK; no defects recorded." : "No inspection was carried out this month."));
+    out.push(text(ins.length || ck?.items?.length ? "All checklist items were found OK; no defects recorded." : "No inspection was carried out this month."));
+  }
+  const remarks = (ck?.items || []).filter((it) => it.status !== "Not OK" && (it.remarks || it.photo));
+  if (remarks.length) {
+    out.push(para([run("Other remarks from the checklist", { bold: true, color: CHARCOAL })], { before: 6, after: 3, keepNext: true }));
+    out.push(table(["Item", "Check", "Status", "Remarks", "Photo"],
+      remarks.map((it) => [String(it.no), it.item, it.status || "—", it.remarks || "—", it.photo || "—"]),
+      [1.2, 6.4, 1.6, 6.0, 1.8], { align: "CLCLC" }));
   }
 
   // data sources
   out.push(h1("Data Sources and Assumptions"));
   out.push(bullet(`Plant monitoring export: ${r.export_name || "iSolarCloud monthly report"}.`));
+  if (r.checklist) out.push(bullet(`Site checklist${r.checklist.ref ? ` ${r.checklist.ref}` : ""}${r.checklist.visit_date ? ` of ${fmtDate(r.checklist.visit_date)}` : ""}${r.checklist.file_name ? ` (${r.checklist.file_name})` : ""}.`));
   out.push(bullet(`Oman grid emission factor ≈ ${EMISSION_FACTOR} kg CO₂/kWh.`));
   out.push(bullet(`Tree CO₂ absorption of ${TREE_KG} kg per tree per year (common conversion value).`));
 
@@ -330,49 +359,106 @@ export async function buildReport({ report: r, site, calc, charts = {}, photos =
   return pack(doc, output);
 }
 
-// ---- checklist ---------------------------------------------------------------------------
+// ---- checklist ----------------------------------------------------------------------------
+// Word tick boxes (click to tick) so the filled-in file can be read back by checklist.js.
+// Keep the labels and table headings in step with checklist.js.
 
-export async function buildChecklist({ site, letterhead = null, items = CHECKLIST }, { output = "blob" } = {}) {
-  const BOX = "☐";
+export const CL = {
+  status: ["OK", "Not OK", "N/A"],
+  visit: ["Monthly", "Quarterly", "Annual", "After event"],
+  method: ["Dry", "Wet", "Robot"],
+  level: ["Low", "Med", "High"],
+  title: "Preventive Maintenance Checklist",
+};
+
+function boxes(labels, { size = 7.5 } = {}) {
+  const kids = [];
+  labels.forEach((l, i) => {
+    kids.push(new CheckBox({ checked: false }), run(` ${l}${i < labels.length - 1 ? "  " : ""}`, { size }));
+  });
+  return new Paragraph({ children: kids, spacing: { before: 0, after: 0 } });
+}
+
+export async function buildChecklist({ site, letterhead = null, items = CHECKLIST, ref = "", month = "" }, { output = "blob" } = {}) {
   const out = [];
   out.push(para([run("O & M   S I T E   C H E C K L I S T", { size: 9, bold: true, color: BLUE })], { after: 2 }));
-  out.push(para([run(`${site.plant_name} Solar PV Plant – Preventive Maintenance Checklist`, { size: 17, bold: true, color: CHARCOAL })], { after: 2 }));
+  out.push(para([run(`${site.plant_name} Solar PV Plant – ${CL.title}`, { size: 17, bold: true, color: CHARCOAL })], { after: 2 }));
   const P = Number(site.capacity_kwp);
   out.push(para([run([site.installation, P ? `${fmt(P, P % 1 ? 1 : 0)} kWp DC` : "", inverterText(site), site.location].filter(Boolean).join("  |  "), { size: 9.5, color: GREY })],
     { after: 8, border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: BLUE, space: 6 } } }));
 
-  const hdr = [["Checklist ref.", "CL-____-__-__", "Visit date", "____ / ____ / ________"],
-    ["Visit type", `${BOX} Monthly  ${BOX} Quarterly  ${BOX} Annual  ${BOX} After event`, "Weather / condition", ""],
-    ["Inspected by", "", "Reviewed by", ""], ["Signature", "", "Signature", ""]];
   const hw = [2.8, 5.7, 2.8, 5.7];
+  const lab = (t, w) => cell(t, { width: w, fill: SECTION, bold: true, color: BLUE, size: 8.5 });
+  const val = (t, w) => cell(t, { width: w, size: 8.5 });
+  const hdrRows = [
+    [lab("Checklist ref.", hw[0]), val(ref, hw[1]), lab("Visit date", hw[2]), val("", hw[3])],
+    [lab("Visit type", hw[0]), new TableCell({ children: [boxes(CL.visit, { size: 8 })], width: { size: cm(hw[1]), type: WidthType.DXA }, margins: { top: 40, bottom: 40, left: 90, right: 90 } }),
+      lab("Weather / condition", hw[2]), val("", hw[3])],
+    [lab("Inspected by", hw[0]), val("", hw[1]), lab("Reviewed by", hw[2]), val("", hw[3])],
+    [lab("Signature", hw[0]), val("", hw[1]), lab("Signature", hw[2]), val("", hw[3])],
+  ];
   out.push(new Table({
-    rows: hdr.map((r) => new TableRow({ cantSplit: true, children: r.map((v, i) => cell(v, {
-      width: hw[i], fill: i % 2 ? undefined : SECTION, bold: !(i % 2), color: i % 2 ? (v.includes("_") ? GREY : undefined) : BLUE, size: 8.5 })) })),
+    rows: hdrRows.map((cells) => new TableRow({ cantSplit: true, height: { value: cm(0.75), rule: HeightRule.ATLEAST }, children: cells })),
     borders: GRID, layout: TableLayoutType.FIXED, alignment: AlignmentType.CENTER, columnWidths: hw.map(cm), width: { size: cm(17), type: WidthType.DXA },
   }));
-  out.push(para([run("Instructions: ", { size: 8.5, bold: true, color: BLUE }), run("check every item due on this visit type, write the date checked, tick the status "
-    + "and describe any defect in Remarks with a photo reference. Items not due on this visit are marked N/A. Not OK items go into the Defects table "
-    + "at the end and into the monthly O&M report.", { size: 8.5 })], { before: 4, after: 6 }));
+  out.push(para([run("How to fill it in: ", { size: 8.5, bold: true, color: BLUE }), run(`type the visit date (e.g. 10/${month ? month.slice(5, 7) : "11"}/${month ? month.slice(0, 4) : "2026"}), click a box to tick it, `
+    + "and write any defect or note in Remarks. Tick N/A for items not due on this visit. Not OK items also go in the Defects table at the end. "
+    + "Save the file and upload it on the O&M report page: the ticks, remarks, cleaning record and defects go into the report.", { size: 8.5 })], { before: 4, after: 6 }));
 
-  const rows = [], section = [];
-  for (const s of items) {
-    section.push(rows.length);
-    rows.push([s.section]);
-    for (const [no, item, freq] of s.items) rows.push([String(no), item, freq, "___/___", `${BOX} OK  ${BOX} Not OK  ${BOX} N/A`, "", ""]);
+  // inspection items
+  const w = [0.8, 5.0, 1.6, 1.6, 3.7, 3.2, 1.1];
+  const head = new TableRow({ tableHeader: true, cantSplit: true,
+    children: ["No.", "Inspection item", "Frequency", "Date checked", "Status", "Remarks / action", "Photo ref."].map((h, i) => cell(h, { width: w[i], fill: BLUE, color: "FFFFFF", bold: true, align: "C", size: 7.5 })) });
+  const trs = [head];
+  let zebra = 0;
+  for (const sct of items) {
+    trs.push(new TableRow({ cantSplit: true, children: [cell(sct.section, { span: w.length, width: 17, fill: SECTION, bold: true, color: BLUE, size: 7.5, keepNext: true })] }));
+    for (const [no, item, freq] of sct.items) {
+      const fill = zebra++ % 2 ? ZEBRA : undefined;
+      trs.push(new TableRow({ cantSplit: true, children: [
+        cell(String(no), { width: w[0], fill, align: "C", bold: true, color: BLUE, size: 7.5 }),
+        cell(item, { width: w[1], fill, size: 7.5 }),
+        cell(freq, { width: w[2], fill, align: "C", size: 7.5 }),
+        cell("", { width: w[3], fill, size: 7.5 }),
+        new TableCell({ children: [boxes(CL.status)], width: { size: cm(w[4]), type: WidthType.DXA }, shading: fill ? { type: ShadingType.CLEAR, fill, color: "auto" } : undefined,
+          verticalAlign: VerticalAlign.CENTER, margins: { top: 40, bottom: 40, left: 90, right: 90 } }),
+        cell("", { width: w[5], fill, size: 7.5 }),
+        cell("", { width: w[6], fill, size: 7.5 }),
+      ] }));
+    }
   }
-  out.push(table(["No.", "Inspection item", "Frequency", "Date checked", "Status", "Remarks / action", "Photo ref."], rows,
-    [0.8, 5.5, 1.8, 1.6, 3.2, 3.0, 1.1], { section, size: 7.5, align: "CLCCLLC", keep: false }));
+  out.push(new Table({ rows: trs, borders: GRID, layout: TableLayoutType.FIXED, alignment: AlignmentType.CENTER, columnWidths: w.map(cm), width: { size: cm(17), type: WidthType.DXA } }));
   out.push(note("Safety: isolate the system and follow lock-out / tag-out before any electrical work. Do not walk on roof sheets without approved access and fall protection."));
   out.push(pageBreak());
-  out.push(h1("Module Cleaning Record"));
-  out.push(table(["Date", "Area / rows cleaned", "Method", "Soiling before", "Water used (L)", "Before photo ref.", "After photo ref.", "Done by"],
-    Array.from({ length: 6 }, () => ["", "", `${BOX} Dry  ${BOX} Wet  ${BOX} Robot`, `${BOX} Low  ${BOX} Med  ${BOX} High`, "", "", "", ""]),
-    [1.6, 3.2, 3.0, 3.0, 1.4, 1.6, 1.6, 1.6], { size: 7.5 }));
-  out.push(h1("Defects Found (Not OK items)"));
-  out.push(table(["No.", "Item no.", "Defect description", "Severity", "Action taken / required", "Target date", "Status"],
-    Array.from({ length: 6 }, () => ["", "", "", `${BOX} Low  ${BOX} Med  ${BOX} High`, "", "", ""]),
-    [0.8, 1.2, 4.6, 3.0, 4.2, 1.8, 1.4], { size: 7.5 }));
 
-  const doc = makeDoc(`${site.plant_name} O&M Site Checklist`, frame(letterhead, `${site.plant_name} Solar PV Plant  |  O&M Site Checklist`), out);
-  return pack(doc, output);
+  const boxCell = (labels, width) => new TableCell({ children: [boxes(labels)], width: { size: cm(width), type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, margins: { top: 40, bottom: 40, left: 90, right: 90 } });
+  const formTable = (headers, widths, makeRow, n = 6) => new Table({
+    rows: [new TableRow({ tableHeader: true, cantSplit: true, children: headers.map((h, i) => cell(h, { width: widths[i], fill: BLUE, color: "FFFFFF", bold: true, align: "C", size: 7.5 })) }),
+      ...Array.from({ length: n }, () => new TableRow({ cantSplit: true, height: { value: cm(0.7), rule: HeightRule.ATLEAST }, children: makeRow() }))],
+    borders: GRID, layout: TableLayoutType.FIXED, alignment: AlignmentType.CENTER, columnWidths: widths.map(cm), width: { size: cm(17), type: WidthType.DXA },
+  });
+  out.push(h1("Module Cleaning Record"));
+  const cw = [1.6, 2.6, 3.4, 3.3, 1.3, 1.6, 1.6, 1.6];
+  out.push(formTable(["Date", "Area / rows cleaned", "Method", "Soiling before", "Water used (L)", "Before photo ref.", "After photo ref.", "Done by"], cw,
+    () => cw.map((x, i) => (i === 2 ? boxCell(CL.method, x) : i === 3 ? boxCell(CL.level, x) : cell("", { width: x, size: 7.5 })))));
+  out.push(h1("Defects Found (Not OK items)"));
+  const dw = [0.8, 1.1, 4.3, 3.3, 4.2, 1.9, 1.4];
+  out.push(formTable(["No.", "Item no.", "Defect description", "Severity", "Action taken / required", "Target date", "Status"], dw,
+    () => dw.map((x, i) => (i === 0 ? cell("", { width: x, size: 7.5 }) : i === 3 ? boxCell(CL.level, x) : cell("", { width: x, size: 7.5 })))));
+
+  const doc = makeDoc(`${site.plant_name} O&M Site Checklist`, frame(letterhead, `${site.plant_name} Solar PV Plant  |  O&M Site Checklist${ref ? `  |  ${ref}` : ""}`), out);
+  return plainBoxes(await pack(doc, output), output);
+}
+
+/**
+ * Show each tick box as a ☐ character in a text run, as Word itself writes them, instead of the
+ * symbol run docx makes (which LibreOffice and some viewers draw as ticked).
+ */
+async function plainBoxes(file, output) {
+  const zip = await globalThis.JSZip.loadAsync(file);
+  const xml = (await zip.file("word/document.xml").async("string")).replace(/<w:sym w:char="2610" w:font="MS Gothic"\/>/g,
+    '<w:rPr><w:rFonts w:ascii="MS Gothic" w:eastAsia="MS Gothic" w:hAnsi="MS Gothic" w:hint="eastAsia"/></w:rPr><w:t>\u2610</w:t>');
+  zip.file("word/document.xml", xml);
+  return zip.generateAsync(output === "buffer" ? { type: "nodebuffer" }
+    : { type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }

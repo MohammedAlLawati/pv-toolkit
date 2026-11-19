@@ -187,12 +187,18 @@ blank in the generated document, and the app logs the name.
 - **Monthly report, cumulative for the calendar year:** the January report shows January, February shows
   January–February, and so on to December; it starts again each January. In the commissioning year it starts
   from the commissioning month, which is marked as a part-month and left out of the PR average.
-- **Inputs per month:** the client (an existing one, or a new one added on the spot), the report month and date,
-  the iSolarCloud *Monthly report* export (.xlsx), the month's maintenance visits, before/after cleaning photos
-  and the Not OK items from the site checklist. Months missing from the export come from the client's earlier
+- **The Excel sheet comes first:** uploading the iSolarCloud *Monthly report* export (.xlsx) picks the client
+  from the plant name in it (or starts a new client with that name), the report month (the latest month with
+  generation) and the report date (from the export's file name, e.g. `…_20261119090441.xlsx`), and shows the
+  report number and file name it will use.
+- **Inputs per month:** the client, the report month and date, the export, the month's maintenance visits
+  (*Cleaning and general inspection* by default), before/after cleaning photos, the filled site checklist and the
+  findings. Months missing from the export come from the client's earlier
   reports that year; earlier visits too.
 - **Plant details are kept on the client** (`client.om`): plant name, DC kWp, installation, location,
   commissioning month and the inverters (model, quantity, kW AC; pick from the library or type them).
+- **Figures can be corrected** in the figures table: a value typed over the export is kept with the report
+  (shown in yellow, with a Reset), carries into later months' reports and is noted in the Word report.
 - **Figures are recalculated every time** from the inputs: generation, irradiation, PR (as iSolarCloud reports
   it; no target), specific yield, cumulative kWh, YTD energy-weighted PR, CO₂ (0.49 kg/kWh) and trees
   (21.77 kg CO₂ per tree per year).
@@ -200,9 +206,13 @@ blank in the generated document, and the app logs the name.
   the logo's blue and greys with green for generation and trees: summary (this month / year to date), plant
   data, the YTD table and charts, environmental impact, maintenance log, cleaning photos, inspection findings
   and data sources.
-- **Site checklist** (34 items, cleaning record, defects table) is a separate Word file, printed and filled in on site.
-- **Versions and packages:** every generated report is kept as a version; the report, the Excel export and the
-  photos are stored as files, so they go to the cloud with everything else. *Full package* zips a month's latest
+- **Site checklist** (34 items, cleaning record, defects table) is a separate Word file with click-to-tick boxes
+  and the month's reference (e.g. `MoHUP-CL-2026-11`). Filled in and uploaded again (`checklist.js` reads it),
+  its visit goes into the maintenance log, its cleaning record into 5.2, and its OK / Not OK / N/A counts, Not OK
+  items, defects and remarks into 5.3. A box replaced by a typed X or ✓ counts as ticked.
+- **Saved by client and month:** the list page groups the reports by client and year, one row per month with its
+  latest version, so any month can be downloaded again later. Every generated report is kept as a version; the
+  report, the Excel export, the filled checklist and the photos are stored as files, so they go to the cloud with everything else. *Full package* zips a month's latest
   report, checklist, export, photos and inputs; the list page zips a whole client year.
 - Code: `web/js/om/` (`xlsx.js` reads the export, `model.js` the numbers, `charts.js` the charts, `report.js`
-  the Word files) and `web/js/pages/om.js`; tests in `web/tests/om.test.mjs`.
+  the Word files, `checklist.js` reads the filled checklist) and `web/js/pages/om.js`; tests in `web/tests/om.test.mjs`.
