@@ -15,6 +15,8 @@
 //   versions                        [{ n, created_at, report_file_id, report_name, summary }]
 //   figures                         { "YYYY-MM": { energy?, irr?, pr? } } values typed over the export's
 //   checklist                       the filled site checklist read back (see checklist.js), or null
+//   irr_estimates                   { "YYYY-MM": { irr, days, days_expected, filled, plane, source } } irradiation
+//                                   estimated from satellite data for months the export has none (irradiance.js)
 //
 // The plant itself lives on the client record, as client.om (entered once per client):
 //   plant_name, capacity_kwp, installation, location, commissioning_month "YYYY-MM",
@@ -33,9 +35,10 @@ export const MON = MONTHS.map((m) => m.slice(0, 3));
 
 export const NEW_REPORT = { client_id: null, report_month: "", report_date: "", prepared_by: "", report_no: "",
   export_file_id: null, export_name: "", export_months: {}, maintenance_log: [], cleaning_photos: [], findings: [], versions: [],
-  figures: {}, checklist: null };
+  figures: {}, checklist: null, irr_estimates: {} };
 
-export const NEW_SITE = { plant_name: "", capacity_kwp: null, installation: "", location: "", commissioning_month: "", inverters: [] };
+export const NEW_SITE = { plant_name: "", capacity_kwp: null, installation: "", location: "", commissioning_month: "", inverters: [],
+  latitude: null, longitude: null, tilt: null, azimuth: null, hide_pr: false };
 
 /** The preventive-maintenance checklist (issued separately and filled in on site). */
 export const CHECKLIST = [
@@ -105,6 +108,8 @@ export function fmtDate(iso) {
   return m ? `${Number(m[3])} ${MON[Number(m[2]) - 1]} ${m[1]}` : String(iso || "");
 }
 
+const num0 = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+
 /** The plant as the template needs it, from the client record. */
 export function siteOf(client) {
   const om = { ...NEW_SITE, ...(client?.om || {}) };
@@ -115,6 +120,11 @@ export function siteOf(client) {
     capacity_kwp: Number(om.capacity_kwp) || null,
     installation: om.installation || (client?.installation_types || []).join(" / "),
     inverters: (om.inverters || []).filter((i) => i && (i.model || i.inverter_id)),
+    lat: num0(om.latitude) ?? num0(client?.latitude),
+    lon: num0(om.longitude) ?? num0(client?.longitude),
+    tilt: num0(om.tilt) ?? 0,
+    azimuth: num0(om.azimuth) ?? 180,
+    hide_pr: !!om.hide_pr,
   };
 }
 
@@ -173,6 +183,13 @@ export function compute(r, site, reports = [], { emission = EMISSION_FACTOR, tre
   const data = {};
   for (const x of earlier) Object.assign(data, x.export_months || {});
   Object.assign(data, r.export_months || {});
+  // irradiation estimated from satellite data, for months the export has none (no weather station)
+  const estimated = {};
+  for (const [key, e] of [...earlier, r].flatMap((x) => Object.entries(x.irr_estimates || {}))) {
+    if (!e || !(Number(e.irr) > 0) || !data[key] || Number(data[key].irr) > 0) continue;
+    data[key] = { ...data[key], irr: Number(e.irr) };
+    estimated[key] = e;
+  }
   // values typed over the export in the figures table win (this year's earlier reports, then this one)
   const edited = {};
   for (const [key, o] of [...earlier, r].flatMap((x) => Object.entries(x.figures || {}))) {
@@ -195,10 +212,14 @@ export function compute(r, site, reports = [], { emission = EMISSION_FACTOR, tre
     const energy = Number(d.energy);
     const partial = key === site.commissioning_month;
     const mtd = key === end && !!rd && rd.slice(0, 7) === key && Number(rd.slice(8, 10)) < daysIn(y, m);
-    const pr = has(d.pr) && Number.isFinite(Number(d.pr)) ? Number(d.pr) : null;
-    const irr = has(d.irr) && Number.isFinite(Number(d.irr)) ? Number(d.irr) : null;
+    const irr = has(d.irr) && Number(d.irr) > 0 ? Number(d.irr) : null;
+    let pr = has(d.pr) && Number.isFinite(Number(d.pr)) && Number(d.pr) > 0 ? Number(d.pr) : null;
+    // no PR in the export but an irradiation (estimated or typed): PR = E / (P × H)
+    const prCalc = pr === null && irr !== null && P > 0;
+    if (prCalc) pr = (energy / (P * irr)) * 100;
+    const est = estimated[key] && !(edited[key] || []).includes("irr") ? estimated[key] : null;
     const co2 = energy * emission;
-    months.push({ key, y, m, label: MON[m - 1], energy, pr, irr, partial, mtd, edited: edited[key] || [],
+    months.push({ key, y, m, label: MON[m - 1], energy, pr, irr, partial, mtd, edited: edited[key] || [], irr_est: est, pr_calc: prCalc,
       in_avg: pr !== null && !partial, sy: P > 0 ? energy / P : null, co2, trees: co2 / treeKg });
   }
   let cum = 0;
@@ -278,4 +299,22 @@ export function matchClient(plant, clients) {
     || clients.find((c) => (n(c.om?.plant_name) && (n(c.om.plant_name).includes(p) || p.includes(n(c.om.plant_name)))))
     || clients.find((c) => n(c.name).includes(p) && p.length >= 3)
     || null;
+}
+
+/**
+ * Months of the report period whose irradiation the export doesn't give, with the days to fetch
+ * for each: the whole month, the report month only to the report date when month-to-date, and
+ * nothing after `today` ("YYYY-MM-DD").
+ */
+export function missingIrradiation(calc, r, today) {
+  const out = [];
+  for (const d of calc.months) {
+    if (d.irr !== null && !d.irr_est) continue;
+    const from = `${d.key}-01`;
+    let to = `${d.key}-${pad(daysIn(d.y, d.m))}`;
+    if (d.mtd && /^\d{4}-\d{2}-\d{2}/.test(r.report_date || "")) to = r.report_date.slice(0, 10);
+    if (today && to >= today) to = new Date(Date.parse(`${today}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+    if (to >= from) out.push({ key: d.key, from, to });
+  }
+  return out;
 }

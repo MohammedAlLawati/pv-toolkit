@@ -7,6 +7,9 @@ globalThis.JSZip = JSZip;
 const { readExport, monthKey } = await import("../js/om/xlsx.js");
 const { compute, siteOf, reportNo, CHECKLIST, parseDate, dateFromFileName, matchClient } = await import("../js/om/model.js");
 const { readChecklist, fromChecklist } = await import("../js/om/checklist.js");
+const { sumPower, estimateIrradiation, powerUrl } = await import("../js/om/irradiance.js");
+const { missingIrradiation } = await import("../js/om/model.js");
+const { sunPosition } = await import("../js/yield/solar.js");
 const { buildReport, buildChecklist } = await import("../js/om/report.js");
 const { reportCharts, niceScale } = await import("../js/om/charts.js");
 
@@ -188,4 +191,67 @@ test("the filled checklist is read back: ticks, remarks, cleaning and defects", 
   const rx = await (await JSZip.loadAsync(await buildReport({ report: r, site, calc, photos: [] }, { output: "buffer" }))).file("word/document.xml").async("string");
   for (const s of ["Plant-CL-2026-11", "1 OK, 1 Not OK, 1 not applicable, 31 not checked", "Bird droppings on row 4", "All rows", "Wet",
     "Other remarks from the checklist", "Slight discolouration on row 2", "Corrected by hand", "Cleaning and general inspection"]) assert.ok(rx.includes(s), s);
+});
+
+// A NASA POWER hourly answer: a clear-sky-ish day shape, the same every day.
+function powerJson(from, to, { skip = [] } = {}) {
+  const P = { ALLSKY_SFC_SW_DWN: {}, ALLSKY_SFC_SW_DNI: {}, ALLSKY_SFC_SW_DIFF: {} };
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86400000) {
+    const d = new Date(t).toISOString().slice(0, 10).replaceAll("-", "");
+    for (let h = 0; h < 24; h++) {
+      const k = d + String(h).padStart(2, "0");
+      const local = h + 4;   // Oman, UTC+4
+      const g = skip.includes(d) ? -999 : local >= 7 && local <= 17 ? Math.round(900 * Math.sin(((local - 6) / 12) * Math.PI)) : 0;
+      // a consistent split: GHI = DNI cos z + DHI
+      const z = sunPosition(Date.parse(`${new Date(t).toISOString().slice(0, 10)}T${String(h).padStart(2, "0")}:30:00Z`), 23.6, 58.4).zenith;
+      const dhi = g > 0 ? g * 0.2 : g, dni = g > 0 && z < 85 ? (g - dhi) / Math.cos((z * Math.PI) / 180) : g > 0 ? 0 : g;
+      P.ALLSKY_SFC_SW_DWN[k] = g; P.ALLSKY_SFC_SW_DNI[k] = dni; P.ALLSKY_SFC_SW_DIFF[k] = g > 0 && z >= 85 ? g : dhi;
+    }
+  }
+  return { header: { fill_value: -999 }, properties: { parameter: P } };
+}
+
+test("irradiation from NASA POWER: summed per month, on the module plane, gaps filled or refused", async () => {
+  const flat = sumPower(powerJson("2026-11-01", "2026-11-30"), { lat: 23.6, lon: 58.4 }, "2026-11-01", "2026-11-30");
+  const day = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].reduce((a, l) => a + Math.round(900 * Math.sin(((l - 6) / 12) * Math.PI)), 0);
+  assert.ok(Math.abs(flat.irr - (day * 30) / 1000) < 1e-9);
+  // a south-facing tilt gets more in a Muscat November
+  const tilted = sumPower(powerJson("2026-11-01", "2026-11-30"), { lat: 23.6, lon: 58.4, tilt: 20, azimuth: 180 }, "2026-11-01", "2026-11-30");
+  assert.ok(tilted.irr > flat.irr * 1.05 && tilted.irr < flat.irr * 1.4, `${tilted.irr} vs ${flat.irr}`);
+  // two days missing: the month's average day stands in; ten missing: no estimate
+  const gap = sumPower(powerJson("2026-11-01", "2026-11-30", { skip: ["20261129", "20261130"] }), { lat: 23.6, lon: 58.4 }, "2026-11-01", "2026-11-30");
+  assert.equal(gap.filled, 2);
+  assert.ok(Math.abs(gap.irr - flat.irr) < 1e-9);
+  const skip = Array.from({ length: 10 }, (_, i) => `202611${String(21 + i)}`);
+  assert.ok(sumPower(powerJson("2026-11-01", "2026-11-30", { skip }), { lat: 23.6, lon: 58.4 }, "2026-11-01", "2026-11-30").error);
+  assert.ok(powerUrl(23.6, 58.4, "2026-11-01", "2026-11-19").includes("start=20261101&end=20261119"));
+
+  // no weather station: no irradiation or PR in the export; the estimate gives both
+  const site = { ...siteOf(client), lat: 23.6, lon: 58.4 };
+  const r = { client_id: 1, report_month: "2026-11", report_date: "2026-11-19",
+    export_months: { "2026-10": { energy: 50000, pr: null, irr: null }, "2026-11": { energy: 30000, pr: null, irr: null } } };
+  site.commissioning_month = "2026-10";
+  const before = compute(r, site, []);
+  const want = missingIrradiation(before, r, "2026-11-19");
+  assert.deepEqual(want, [{ key: "2026-10", from: "2026-10-01", to: "2026-10-31" }, { key: "2026-11", from: "2026-11-01", to: "2026-11-18" }]);
+  const fake = async (url) => { const m = url.match(/start=(\d{8})&end=(\d{8})/); const iso = (x) => `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6)}`;
+    return { ok: true, json: async () => powerJson(iso(m[1]), iso(m[2])) }; };
+  const { estimates } = await estimateIrradiation(site, want, fake);
+  const calc = compute({ ...r, irr_estimates: estimates }, site, []);
+  const nov = calc.months.find((d) => d.key === "2026-11");
+  assert.ok(nov.irr_est && nov.pr_calc);
+  assert.ok(Math.abs(nov.pr - (30000 / (383 * nov.irr)) * 100) < 1e-9);
+  const rx = await (await JSZip.loadAsync(await buildReport({ report: { ...r, irr_estimates: estimates }, site, calc, photos: [] }, { output: "buffer" }))).file("word/document.xml").async("string");
+  for (const s of ["NASA POWER", "‡", "calculated as generation ÷ (DC kWp × irradiation)"]) assert.ok(rx.includes(s), s);
+});
+
+test("PR and irradiation can be left out of a client's reports", async () => {
+  const exp = await readExport(await exportXlsx(ROWS));
+  const site = siteOf({ ...client, om: { ...client.om, hide_pr: true } });
+  assert.equal(site.hide_pr, true);
+  const r = { client_id: 1, report_month: "2026-07", report_date: "2026-07-31", export_months: exp.months };
+  const calc = compute(r, site, []);
+  const xml = await (await JSZip.loadAsync(await buildReport({ report: r, site, calc, photos: [] }, { output: "buffer" }))).file("word/document.xml").async("string");
+  for (const s of ["Performance ratio", "Performance Ratio", "Irradiation", "irradiation", "PR (%)", "kWh/m²", "YTD PR"]) assert.ok(!xml.includes(s), s);
+  for (const s of ["3. Generation – Year to Date", "213,876.4"]) assert.ok(xml.includes(s), s);
 });
