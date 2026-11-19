@@ -27,6 +27,17 @@ jobs:
           cp -r web/index.html web/icon.svg web/css web/js web/vendor web/templates web/data web/fonts _site/
           [ -f web/letters.html ] && cp web/letters.html _site/ || true
           touch _site/.nojekyll
+      - name: Version the app's own scripts and stylesheets
+        # GitHub Pages lets browsers keep files for 10 minutes, so after a publish they could run
+        # the old scripts. Adding ?v=<commit> to every import makes them fetch the new ones at once.
+        working-directory: _site
+        run: |
+          V="${GITHUB_SHA::7}"
+          find js -name '*.js' -print0 | xargs -0 perl -pi -e '
+            s#((?:\bfrom|\bimport)\s*\(?\s*)(["\x27])(\.{1,2}/[^"\x27?\s]+\.m?js)\2#$1$2$3?v='"$V"'$2#g;
+            s#(\.js)`\)#$1?v='"$V"'`)#g;'
+          perl -pi -e 's#((?:src|href)=")((?:js|css)/[^"?]+\.(?:js|css))"#$1$2?v='"$V"'"#g' index.html
+          grep -q "js/app.js?v=$V" index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
